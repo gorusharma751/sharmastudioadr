@@ -2,8 +2,8 @@ import React from 'react';
 import { motion } from 'framer-motion';
 import { ArrowRight, Play, Star, Camera, Video, Sparkles } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { SectionContainer, SectionHeader, AnimatedCard, StatCard } from '@/components/ui/shared';
-import { Link } from 'react-router-dom';
+import { SectionContainer } from '@/components/ui/shared';
+import { Link, useNavigate } from 'react-router-dom';
 
 // Premium placeholder images for hero
 const heroImages = [
@@ -13,14 +13,24 @@ const heroImages = [
 ];
 
 const HeroSection: React.FC = () => {
+  const navigate = useNavigate();
+
   return (
     <section className="relative min-h-screen flex items-center hero-gradient overflow-hidden">
       {/* Background Pattern */}
       <div className="absolute inset-0 pattern-dots opacity-30" />
       
       {/* Floating Elements */}
-      <div className="absolute top-20 left-10 w-20 h-20 rounded-full bg-primary/10 blur-xl animate-float" />
-      <div className="absolute bottom-40 right-20 w-32 h-32 rounded-full bg-primary/5 blur-2xl animate-float" style={{ animationDelay: '1s' }} />
+      <motion.div 
+        animate={{ y: [0, -20, 0] }}
+        transition={{ duration: 6, repeat: Infinity, ease: "easeInOut" }}
+        className="absolute top-20 left-10 w-20 h-20 rounded-full bg-primary/10 blur-xl" 
+      />
+      <motion.div 
+        animate={{ y: [0, 20, 0] }}
+        transition={{ duration: 8, repeat: Infinity, ease: "easeInOut" }}
+        className="absolute bottom-40 right-20 w-32 h-32 rounded-full bg-primary/5 blur-2xl" 
+      />
       
       <SectionContainer className="relative z-10 pt-32 pb-20">
         <div className="grid lg:grid-cols-2 gap-12 items-center">
@@ -52,13 +62,22 @@ const HeroSection: React.FC = () => {
             </p>
             
             <div className="flex flex-wrap gap-4">
-              <Button size="lg" className="btn-premium group">
+              <Button 
+                size="lg" 
+                className="btn-premium group"
+                onClick={() => navigate('/booking')}
+              >
                 Book a Session
                 <ArrowRight className="ml-2 group-hover:translate-x-1 transition-transform" size={18} />
               </Button>
-              <Button size="lg" variant="outline" className="btn-outline-gold group">
+              <Button 
+                size="lg" 
+                variant="outline" 
+                className="btn-outline-gold group"
+                onClick={() => navigate('/portfolio')}
+              >
                 <Play className="mr-2" size={18} />
-                View Showreel
+                View Portfolio
               </Button>
             </div>
             
