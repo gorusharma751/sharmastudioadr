@@ -26,6 +26,7 @@ import CustomPage from "./pages/public/CustomPage";
 // Layouts
 import SuperAdminLayout from "./layouts/SuperAdminLayout";
 import StudioAdminLayout from "./layouts/StudioAdminLayout";
+import UserLayout from "./layouts/UserLayout";
 
 // Super Admin Pages
 import SuperAdminDashboard from "./pages/super-admin/Dashboard";
@@ -38,6 +39,13 @@ import BookingsManager from "./pages/admin/BookingsManager";
 import PagesManager from "./pages/admin/PagesManager";
 import ProgramsManager from "./pages/admin/ProgramsManager";
 import SettingsManager from "./pages/admin/SettingsManager";
+import FindPhotosManager from "./pages/admin/FindPhotosManager";
+import InvitationsManager from "./pages/admin/InvitationsManager";
+
+// User Pages
+import UserDashboard from "./pages/user/UserDashboard";
+import UserAlbums from "./pages/user/UserAlbums";
+import UserShare from "./pages/user/UserShare";
 
 const queryClient = new QueryClient();
 
@@ -57,7 +65,7 @@ const App = () => (
         <BrowserRouter>
           <Routes>
             {/* Public Routes */}
-            <Route path="/" element={<Index />} />
+            <Route path="/" element={<PublicPageWrapper><Index /></PublicPageWrapper>} />
             <Route path="/auth" element={<AuthPage />} />
             <Route path="/services" element={<PublicPageWrapper><ServicesPage /></PublicPageWrapper>} />
             <Route path="/portfolio" element={<PublicPageWrapper><PortfolioPage /></PublicPageWrapper>} />
@@ -69,6 +77,15 @@ const App = () => (
             <Route path="/find-photos" element={<PublicPageWrapper><FindPhotosPage /></PublicPageWrapper>} />
             <Route path="/invitation" element={<PublicPageWrapper><WeddingInvitationPage /></PublicPageWrapper>} />
             <Route path="/page/:slug" element={<PublicPageWrapper><CustomPage /></PublicPageWrapper>} />
+
+            {/* User Routes (Customer Portal) */}
+            <Route path="/user" element={<UserLayout />}>
+              <Route index element={<UserDashboard />} />
+              <Route path="albums" element={<UserAlbums />} />
+              <Route path="share" element={<UserShare />} />
+              <Route path="invitations" element={<UserDashboard />} />
+              <Route path="bookings" element={<UserDashboard />} />
+            </Route>
 
             {/* Super Admin Routes */}
             <Route path="/super-admin" element={<SuperAdminLayout />}>
@@ -89,8 +106,8 @@ const App = () => (
               <Route path="portfolio" element={<PortfolioManager />} />
               <Route path="bookings" element={<BookingsManager />} />
               <Route path="albums" element={<ProgramsManager />} />
-              <Route path="find-photos" element={<StudioAdminDashboard />} />
-              <Route path="invitations" element={<StudioAdminDashboard />} />
+              <Route path="find-photos" element={<FindPhotosManager />} />
+              <Route path="invitations" element={<InvitationsManager />} />
             </Route>
 
             {/* Catch-all */}

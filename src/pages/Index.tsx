@@ -6,22 +6,24 @@ import PortfolioSection from '@/components/public/PortfolioSection';
 import BookingSection from '@/components/public/BookingSection';
 import Footer from '@/components/Footer';
 import { useNavigate } from 'react-router-dom';
+import { useStudio } from '@/contexts/StudioContext';
 
 const Index: React.FC = () => {
   const navigate = useNavigate();
+  const { studio } = useStudio();
 
   return (
     <div className="min-h-screen bg-background">
       <GlassNavbar
-        studioName="StudioSaaS"
+        studioName={studio?.name || "StudioSaaS"}
         showAuth={true}
         onAuthClick={() => navigate('/auth')}
       />
       <HeroSection />
       <ServicesSection />
       <PortfolioSection />
-      <BookingSection studioId="demo" />
-      <Footer studioName="StudioSaaS" />
+      <BookingSection studioId={studio?.id || "demo"} />
+      <Footer studioName={studio?.name || "StudioSaaS"} />
     </div>
   );
 };
