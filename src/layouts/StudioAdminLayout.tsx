@@ -19,6 +19,7 @@ import {
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { useAuth } from '@/contexts/AuthContext';
+import { supabase } from '@/integrations/supabase/client';
 import { cn } from '@/lib/utils';
 import { Skeleton } from '@/components/ui/skeleton';
 
@@ -29,6 +30,7 @@ const StudioAdminLayout: React.FC = () => {
   const [studioDropdownOpen, setStudioDropdownOpen] = React.useState(false);
   const location = useLocation();
   const navigate = useNavigate();
+  const [loadingStudio, setLoadingStudio] = React.useState(false);
 
   // Redirect if not authenticated or not admin
   useEffect(() => {
@@ -36,6 +38,32 @@ const StudioAdminLayout: React.FC = () => {
       navigate('/auth');
     }
   }, [user, loading, navigate]);
+
+  // Auto-fetch a studio if none is set
+  useEffect(() => {
+    const fetchDefaultStudio = async () => {
+      if (!currentStudio && user && !loadingStudio) {
+        setLoadingStudio(true);
+        try {
+          const { data } = await supabase
+            .from('studios')
+            .select('*, saas_plans(*)')
+            .eq('is_active', true)
+            .limit(1)
+            .maybeSingle();
+          
+          if (data) {
+            setCurrentStudio(data as any);
+          }
+        } catch (e) {
+          console.error('Error fetching default studio:', e);
+        } finally {
+          setLoadingStudio(false);
+        }
+      }
+    };
+    fetchDefaultStudio();
+  }, [currentStudio, user, loadingStudio, setCurrentStudio]);
 
   // Close mobile menu on route change
   useEffect(() => {
@@ -59,13 +87,14 @@ const StudioAdminLayout: React.FC = () => {
     navigate('/auth');
   };
 
-  // Show loading while checking auth
-  if (loading) {
+  // Show loading while checking auth or loading studio
+  if (loading || loadingStudio) {
     return (
       <div className="min-h-screen bg-background flex items-center justify-center">
         <div className="text-center space-y-4">
           <Skeleton className="h-12 w-12 rounded-full mx-auto" />
           <Skeleton className="h-4 w-32 mx-auto" />
+          <p className="text-muted-foreground text-sm">Loading...</p>
         </div>
       </div>
     );
