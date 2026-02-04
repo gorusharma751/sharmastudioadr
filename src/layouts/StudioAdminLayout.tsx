@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useEffect } from 'react';
 import { Outlet, Link, useLocation, useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import {
@@ -10,7 +10,6 @@ import {
   Calendar,
   Image,
   QrCode,
-  Users,
   Heart,
   LogOut,
   Menu,
@@ -21,14 +20,27 @@ import {
 import { Button } from '@/components/ui/button';
 import { useAuth } from '@/contexts/AuthContext';
 import { cn } from '@/lib/utils';
+import { Skeleton } from '@/components/ui/skeleton';
 
 const StudioAdminLayout: React.FC = () => {
   const [sidebarOpen, setSidebarOpen] = React.useState(true);
   const [mobileMenuOpen, setMobileMenuOpen] = React.useState(false);
-  const { signOut, user, currentStudio, studios, setCurrentStudio } = useAuth();
+  const { signOut, user, loading, currentStudio, studios, setCurrentStudio, isStudioAdmin, isSuperAdmin } = useAuth();
   const [studioDropdownOpen, setStudioDropdownOpen] = React.useState(false);
   const location = useLocation();
   const navigate = useNavigate();
+
+  // Redirect if not authenticated or not admin
+  useEffect(() => {
+    if (!loading && !user) {
+      navigate('/auth');
+    }
+  }, [user, loading, navigate]);
+
+  // Close mobile menu on route change
+  useEffect(() => {
+    setMobileMenuOpen(false);
+  }, [location.pathname]);
 
   const navItems = [
     { label: 'Dashboard', href: '/admin', icon: LayoutDashboard },
@@ -46,6 +58,23 @@ const StudioAdminLayout: React.FC = () => {
     await signOut();
     navigate('/auth');
   };
+
+  // Show loading while checking auth
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-background flex items-center justify-center">
+        <div className="text-center space-y-4">
+          <Skeleton className="h-12 w-12 rounded-full mx-auto" />
+          <Skeleton className="h-4 w-32 mx-auto" />
+        </div>
+      </div>
+    );
+  }
+
+  // Redirect handled by useEffect, but prevent render if not logged in
+  if (!user) {
+    return null;
+  }
 
   return (
     <div className="min-h-screen bg-background flex">
@@ -162,22 +191,20 @@ const StudioAdminLayout: React.FC = () => {
         </nav>
 
         {/* View Website Link */}
-        {currentStudio && (
-          <div className="px-4 pb-4">
-            <Link
-              to={`/studio/${currentStudio.slug}`}
-              target="_blank"
-              className={cn(
-                'flex items-center gap-2 px-4 py-3 rounded-lg',
-                'bg-primary/10 text-primary hover:bg-primary/20 transition-colors',
-                !sidebarOpen && 'justify-center'
-              )}
-            >
-              <ExternalLink size={18} />
-              {sidebarOpen && <span>View Website</span>}
-            </Link>
-          </div>
-        )}
+        <div className="px-4 pb-4">
+          <Link
+            to="/"
+            target="_blank"
+            className={cn(
+              'flex items-center gap-2 px-4 py-3 rounded-lg',
+              'bg-primary/10 text-primary hover:bg-primary/20 transition-colors',
+              !sidebarOpen && 'justify-center'
+            )}
+          >
+            <ExternalLink size={18} />
+            {sidebarOpen && <span>View Website</span>}
+          </Link>
+        </div>
 
         {/* User Section */}
         <div className="p-4 border-t border-sidebar-border">
@@ -213,7 +240,7 @@ const StudioAdminLayout: React.FC = () => {
       </motion.aside>
 
       {/* Mobile Header */}
-      <div className="lg:hidden fixed top-0 left-0 right-0 h-16 bg-sidebar border-b border-sidebar-border z-40 flex items-center justify-between px-4">
+      <div className="lg:hidden fixed top-0 left-0 right-0 h-16 bg-sidebar border-b border-sidebar-border z-50 flex items-center justify-between px-4">
         <div className="flex items-center gap-3">
           <div className="h-8 w-8 rounded-lg bg-gradient-gold flex items-center justify-center">
             <Camera className="text-primary-foreground" size={16} />
@@ -236,7 +263,7 @@ const StudioAdminLayout: React.FC = () => {
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
           exit={{ opacity: 0 }}
-          className="lg:hidden fixed inset-0 bg-background/80 backdrop-blur-sm z-30"
+          className="lg:hidden fixed inset-0 bg-background/95 backdrop-blur-sm z-40"
           onClick={() => setMobileMenuOpen(false)}
         />
       )}
@@ -246,7 +273,7 @@ const StudioAdminLayout: React.FC = () => {
         initial={{ x: '-100%' }}
         animate={{ x: mobileMenuOpen ? 0 : '-100%' }}
         transition={{ type: 'tween', duration: 0.3 }}
-        className="lg:hidden fixed left-0 top-16 bottom-0 w-72 bg-sidebar border-r border-sidebar-border z-40 overflow-y-auto"
+        className="lg:hidden fixed left-0 top-16 bottom-0 w-72 bg-sidebar border-r border-sidebar-border z-50 overflow-y-auto"
       >
         <nav className="p-4 space-y-1">
           {navItems.map((item) => {
@@ -271,6 +298,18 @@ const StudioAdminLayout: React.FC = () => {
             );
           })}
         </nav>
+
+        {/* Mobile Sign Out */}
+        <div className="p-4 border-t border-sidebar-border">
+          <Button
+            variant="ghost"
+            className="w-full justify-start text-sidebar-foreground"
+            onClick={handleSignOut}
+          >
+            <LogOut size={18} className="mr-2" />
+            Sign Out
+          </Button>
+        </div>
       </motion.div>
 
       {/* Main Content */}
@@ -282,7 +321,7 @@ const StudioAdminLayout: React.FC = () => {
           'transition-all duration-300'
         )}
       >
-        <div className="p-6 lg:p-8">
+        <div className="p-4 md:p-6 lg:p-8">
           <Outlet />
         </div>
       </main>
