@@ -39,7 +39,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         .from('user_roles')
         .select('role')
         .eq('user_id', userId)
-        .single();
+        .maybeSingle();
 
       if (roleData) {
         setRole(roleData.role as AppRole);
@@ -53,8 +53,11 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           .select('*, saas_plans(*)')
           .order('created_at', { ascending: false });
 
-        if (studiosData) {
+        if (studiosData && studiosData.length > 0) {
           setStudios(studiosData as Studio[]);
+          if (!currentStudio) {
+            setCurrentStudio(studiosData[0] as Studio);
+          }
         }
       } else {
         // Studio admin - fetch owned studios and member studios
@@ -80,6 +83,20 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
               allStudios.push(m.studios as Studio);
             }
           });
+        }
+
+        // If no studios, try to get any available studio for demo
+        if (allStudios.length === 0) {
+          const { data: anyStudio } = await supabase
+            .from('studios')
+            .select('*, saas_plans(*)')
+            .eq('is_active', true)
+            .limit(1)
+            .maybeSingle();
+          
+          if (anyStudio) {
+            allStudios.push(anyStudio as Studio);
+          }
         }
 
         setStudios(allStudios);
