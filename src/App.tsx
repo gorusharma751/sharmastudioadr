@@ -25,12 +25,8 @@ import CustomPage from "./pages/public/CustomPage";
 import DigitalAlbumPage from "./pages/public/DigitalAlbumPage";
 
 // Layouts
-import SuperAdminLayout from "./layouts/SuperAdminLayout";
 import StudioAdminLayout from "./layouts/StudioAdminLayout";
 import UserLayout from "./layouts/UserLayout";
-
-// Super Admin Pages
-import SuperAdminDashboard from "./pages/super-admin/Dashboard";
 
 // Studio Admin Pages
 import StudioAdminDashboard from "./pages/admin/Dashboard";
@@ -91,15 +87,7 @@ const App = () => (
               <Route path="bookings" element={<UserDashboard />} />
             </Route>
 
-            {/* Super Admin Routes */}
-            <Route path="/super-admin" element={<SuperAdminLayout />}>
-              <Route index element={<SuperAdminDashboard />} />
-              <Route path="studios" element={<SuperAdminDashboard />} />
-              <Route path="plans" element={<SuperAdminDashboard />} />
-              <Route path="users" element={<SuperAdminDashboard />} />
-              <Route path="analytics" element={<SuperAdminDashboard />} />
-              <Route path="settings" element={<SuperAdminDashboard />} />
-            </Route>
+
 
             {/* Studio Admin Routes */}
             <Route path="/admin" element={<StudioAdminLayout />}>
