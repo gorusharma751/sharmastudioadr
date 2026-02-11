@@ -132,6 +132,10 @@ export interface ProgramAlbum {
   event_date: string | null;
   qr_code_url: string | null;
   is_published: boolean;
+  slug: string | null;
+  cover_image_url: string | null;
+  client_name: string | null;
+  music_url: string | null;
   created_at: string;
   updated_at: string;
   // Relations
@@ -146,6 +150,31 @@ export interface ProgramImage {
   caption: string | null;
   sort_order: number;
   created_at: string;
+}
+
+export interface AlbumLead {
+  id: string;
+  studio_id: string;
+  program_album_id: string;
+  name: string;
+  phone: string;
+  email: string | null;
+  created_at: string;
+}
+
+export interface AlbumSettings {
+  id: string;
+  studio_id: string;
+  watermark_enabled: boolean;
+  watermark_position: string;
+  music_url: string | null;
+  lead_form_enabled: boolean;
+  lead_form_heading: string;
+  lead_form_button_text: string;
+  lead_form_fields: string[];
+  footer_text: string;
+  created_at: string;
+  updated_at: string;
 }
 
 export interface Page {

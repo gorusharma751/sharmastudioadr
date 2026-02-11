@@ -42,6 +42,8 @@ import ProgramsManager from "./pages/admin/ProgramsManager";
 import SettingsManager from "./pages/admin/SettingsManager";
 import FindPhotosManager from "./pages/admin/FindPhotosManager";
 import InvitationsManager from "./pages/admin/InvitationsManager";
+import LeadsManager from "./pages/admin/LeadsManager";
+import AlbumSettingsManager from "./pages/admin/AlbumSettingsManager";
 
 // User Pages
 import UserDashboard from "./pages/user/UserDashboard";
@@ -108,6 +110,8 @@ const App = () => (
               <Route path="portfolio" element={<PortfolioManager />} />
               <Route path="bookings" element={<BookingsManager />} />
               <Route path="albums" element={<ProgramsManager />} />
+              <Route path="leads" element={<LeadsManager />} />
+              <Route path="album-settings" element={<AlbumSettingsManager />} />
               <Route path="find-photos" element={<FindPhotosManager />} />
               <Route path="invitations" element={<InvitationsManager />} />
             </Route>
