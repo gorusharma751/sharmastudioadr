@@ -37,42 +37,29 @@ const UserAlbums: React.FC = () => {
     }
 
     try {
-      // In a real app, you'd have a user-album relationship table
-      // For now, we'll fetch published program albums that match user's bookings
-      const { data: bookings } = await supabase
-        .from('bookings')
-        .select('name, phone, email')
-        .eq('email', user.email);
+      // Fetch all published program albums that the user can access
+      const { data: albums, error } = await supabase
+        .from('program_albums')
+        .select('id, name, description, event_date, is_published, cover_image_url, client_name')
+        .eq('is_published', true)
+        .order('event_date', { ascending: false });
 
-      if (bookings && bookings.length > 0) {
-        // Get albums from studios where user has bookings
-        const { data: albums } = await supabase
-          .from('program_albums')
-          .select('id, name, description, event_date, is_published')
-          .eq('is_published', true)
-          .order('event_date', { ascending: false });
+      if (error) throw error;
 
-        if (albums) {
-          setAlbums(albums);
-        }
-      } else {
-        // Demo albums for testing
-        setAlbums([
-          {
-            id: 'demo-1',
-            name: 'Wedding - Demo Album',
-            description: 'Your beautiful wedding memories',
-            event_date: '2026-02-15',
-            is_published: true,
-          },
-          {
-            id: 'demo-2',
-            name: 'Pre-Wedding Shoot',
-            description: 'Romantic pre-wedding photoshoot',
-            event_date: '2026-02-10',
-            is_published: true,
-          },
-        ]);
+      if (albums && albums.length > 0) {
+        // Get image counts
+        const albumIds = albums.map(a => a.id);
+        const { data: imageCounts } = await supabase
+          .from('program_images')
+          .select('program_album_id')
+          .in('program_album_id', albumIds);
+
+        const countMap: Record<string, number> = {};
+        imageCounts?.forEach(img => {
+          countMap[img.program_album_id] = (countMap[img.program_album_id] || 0) + 1;
+        });
+
+        setAlbums(albums.map(a => ({ ...a, image_count: countMap[a.id] || 0 })));
       }
     } catch (error) {
       console.error('Error fetching albums:', error);
@@ -82,7 +69,7 @@ const UserAlbums: React.FC = () => {
   };
 
   const handleShare = (album: UserAlbum) => {
-    const shareUrl = `${window.location.origin}/album/${album.id}`;
+    const shareUrl = `${window.location.origin}/digital-album/${album.id}`;
     navigator.clipboard.writeText(shareUrl);
     toast({ title: 'Link Copied!', description: 'Share this link with your family' });
   };
@@ -176,7 +163,7 @@ const UserAlbums: React.FC = () => {
                   )}
                   
                   <div className="flex gap-2">
-                    <Button size="sm" className="flex-1" onClick={() => navigate(`/album/${album.id}`)}>
+                    <Button size="sm" className="flex-1" onClick={() => navigate(`/digital-album/${album.id}`)}>
                       <Eye size={14} className="mr-2" />
                       View Album
                     </Button>

@@ -16,6 +16,8 @@ import {
   X,
   ChevronDown,
   ExternalLink,
+  Users,
+  Sliders,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { useAuth } from '@/contexts/AuthContext';
@@ -78,6 +80,8 @@ const StudioAdminLayout: React.FC = () => {
     { label: 'Portfolio', href: '/admin/portfolio', icon: Camera },
     { label: 'Bookings', href: '/admin/bookings', icon: Calendar },
     { label: 'Event Albums', href: '/admin/albums', icon: Image },
+    { label: 'Album Settings', href: '/admin/album-settings', icon: Sliders },
+    { label: 'Leads', href: '/admin/leads', icon: Users },
     { label: 'Find Your Photos', href: '/admin/find-photos', icon: QrCode },
     { label: 'Invitations', href: '/admin/invitations', icon: Heart },
   ];

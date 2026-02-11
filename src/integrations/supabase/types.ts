@@ -14,6 +14,104 @@ export type Database = {
   }
   public: {
     Tables: {
+      album_leads: {
+        Row: {
+          created_at: string
+          email: string | null
+          id: string
+          name: string
+          phone: string
+          program_album_id: string
+          studio_id: string
+        }
+        Insert: {
+          created_at?: string
+          email?: string | null
+          id?: string
+          name: string
+          phone: string
+          program_album_id: string
+          studio_id: string
+        }
+        Update: {
+          created_at?: string
+          email?: string | null
+          id?: string
+          name?: string
+          phone?: string
+          program_album_id?: string
+          studio_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "album_leads_program_album_id_fkey"
+            columns: ["program_album_id"]
+            isOneToOne: false
+            referencedRelation: "program_albums"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "album_leads_studio_id_fkey"
+            columns: ["studio_id"]
+            isOneToOne: false
+            referencedRelation: "studios"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      album_settings: {
+        Row: {
+          created_at: string
+          footer_text: string | null
+          id: string
+          lead_form_button_text: string | null
+          lead_form_enabled: boolean | null
+          lead_form_fields: Json | null
+          lead_form_heading: string | null
+          music_url: string | null
+          studio_id: string
+          updated_at: string
+          watermark_enabled: boolean | null
+          watermark_position: string | null
+        }
+        Insert: {
+          created_at?: string
+          footer_text?: string | null
+          id?: string
+          lead_form_button_text?: string | null
+          lead_form_enabled?: boolean | null
+          lead_form_fields?: Json | null
+          lead_form_heading?: string | null
+          music_url?: string | null
+          studio_id: string
+          updated_at?: string
+          watermark_enabled?: boolean | null
+          watermark_position?: string | null
+        }
+        Update: {
+          created_at?: string
+          footer_text?: string | null
+          id?: string
+          lead_form_button_text?: string | null
+          lead_form_enabled?: boolean | null
+          lead_form_fields?: Json | null
+          lead_form_heading?: string | null
+          music_url?: string | null
+          studio_id?: string
+          updated_at?: string
+          watermark_enabled?: boolean | null
+          watermark_position?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "album_settings_studio_id_fkey"
+            columns: ["studio_id"]
+            isOneToOne: true
+            referencedRelation: "studios"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       bookings: {
         Row: {
           created_at: string
@@ -314,35 +412,47 @@ export type Database = {
       }
       program_albums: {
         Row: {
+          client_name: string | null
+          cover_image_url: string | null
           created_at: string
           description: string | null
           event_date: string | null
           id: string
           is_published: boolean | null
+          music_url: string | null
           name: string
           qr_code_url: string | null
+          slug: string | null
           studio_id: string
           updated_at: string
         }
         Insert: {
+          client_name?: string | null
+          cover_image_url?: string | null
           created_at?: string
           description?: string | null
           event_date?: string | null
           id?: string
           is_published?: boolean | null
+          music_url?: string | null
           name: string
           qr_code_url?: string | null
+          slug?: string | null
           studio_id: string
           updated_at?: string
         }
         Update: {
+          client_name?: string | null
+          cover_image_url?: string | null
           created_at?: string
           description?: string | null
           event_date?: string | null
           id?: string
           is_published?: boolean | null
+          music_url?: string | null
           name?: string
           qr_code_url?: string | null
+          slug?: string | null
           studio_id?: string
           updated_at?: string
         }
