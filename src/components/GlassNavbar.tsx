@@ -4,11 +4,11 @@ import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { Menu, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
+import { supabase } from '@/integrations/supabase/client';
 
 interface NavItem {
   label: string;
   href: string;
-  children?: NavItem[];
 }
 
 interface GlassNavbarProps {
@@ -30,14 +30,12 @@ const GlassNavbar: React.FC<GlassNavbarProps> = ({
 }) => {
   const [isOpen, setIsOpen] = React.useState(false);
   const [scrolled, setScrolled] = React.useState(false);
+  const [dynamicPages, setDynamicPages] = React.useState<NavItem[]>([]);
   const location = useLocation();
   const navigate = useNavigate();
 
   React.useEffect(() => {
-    const handleScroll = () => {
-      setScrolled(window.scrollY > 20);
-    };
-
+    const handleScroll = () => setScrolled(window.scrollY > 20);
     window.addEventListener('scroll', handleScroll);
     return () => window.removeEventListener('scroll', handleScroll);
   }, []);
@@ -46,6 +44,27 @@ const GlassNavbar: React.FC<GlassNavbarProps> = ({
   React.useEffect(() => {
     setIsOpen(false);
   }, [location.pathname]);
+
+  // Fetch dynamic pages for navbar
+  React.useEffect(() => {
+    const fetchNavPages = async () => {
+      try {
+        const { data } = await supabase
+          .from('pages')
+          .select('title, slug, sort_order')
+          .eq('is_published', true)
+          .eq('show_in_nav', true)
+          .order('sort_order');
+
+        if (data) {
+          setDynamicPages(data.map(p => ({ label: p.title, href: `/page/${p.slug}` })));
+        }
+      } catch (e) {
+        console.error('Error fetching nav pages:', e);
+      }
+    };
+    fetchNavPages();
+  }, []);
 
   const defaultNavItems: NavItem[] = [
     { label: 'Home', href: '/' },
@@ -56,7 +75,8 @@ const GlassNavbar: React.FC<GlassNavbarProps> = ({
     { label: 'Contact', href: '/contact' },
   ];
 
-  const items = navItems.length > 0 ? navItems : defaultNavItems;
+  const staticItems = navItems.length > 0 ? navItems : defaultNavItems;
+  const items = [...staticItems, ...dynamicPages];
 
   const handleBookNow = () => {
     navigate('/booking');
@@ -104,18 +124,14 @@ const GlassNavbar: React.FC<GlassNavbarProps> = ({
             {/* Desktop Navigation */}
             <div className="hidden lg:flex items-center gap-8">
               {items.map((item) => (
-                <NavLink key={item.href} item={item} currentPath={location.pathname} />
+                <NavLinkItem key={item.href} item={item} currentPath={location.pathname} />
               ))}
             </div>
 
             {/* Auth Button / CTA */}
             <div className="hidden lg:flex items-center gap-4">
               {showAuth && (
-                <Button
-                  variant="ghost"
-                  className="text-foreground hover:text-primary"
-                  onClick={handleAuthClick}
-                >
+                <Button variant="ghost" className="text-foreground hover:text-primary" onClick={handleAuthClick}>
                   {isAuthenticated ? 'Dashboard' : 'Login'}
                 </Button>
               )}
@@ -136,11 +152,10 @@ const GlassNavbar: React.FC<GlassNavbarProps> = ({
         </div>
       </motion.nav>
 
-      {/* Mobile Menu - Full Screen Overlay */}
+      {/* Mobile Menu */}
       <AnimatePresence>
         {isOpen && (
           <>
-            {/* Backdrop */}
             <motion.div
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
@@ -149,8 +164,6 @@ const GlassNavbar: React.FC<GlassNavbarProps> = ({
               className="lg:hidden fixed inset-0 bg-background/95 backdrop-blur-xl z-40"
               onClick={() => setIsOpen(false)}
             />
-            
-            {/* Menu Content */}
             <motion.div
               initial={{ opacity: 0, y: -20 }}
               animate={{ opacity: 1, y: 0 }}
@@ -182,26 +195,18 @@ const GlassNavbar: React.FC<GlassNavbarProps> = ({
                     </motion.div>
                   ))}
                 </div>
-                
-                <motion.div 
+                <motion.div
                   className="pt-8 space-y-4"
                   initial={{ opacity: 0 }}
                   animate={{ opacity: 1 }}
                   transition={{ delay: 0.3 }}
                 >
                   {showAuth && (
-                    <Button
-                      variant="outline"
-                      className="w-full btn-outline-gold h-14 text-lg"
-                      onClick={handleAuthClick}
-                    >
+                    <Button variant="outline" className="w-full btn-outline-gold h-14 text-lg" onClick={handleAuthClick}>
                       {isAuthenticated ? 'Dashboard' : 'Login'}
                     </Button>
                   )}
-                  <Button 
-                    className="w-full btn-premium h-14 text-lg"
-                    onClick={handleBookNow}
-                  >
+                  <Button className="w-full btn-premium h-14 text-lg" onClick={handleBookNow}>
                     Book Now
                   </Button>
                 </motion.div>
@@ -214,9 +219,8 @@ const GlassNavbar: React.FC<GlassNavbarProps> = ({
   );
 };
 
-const NavLink: React.FC<{ item: NavItem; currentPath: string }> = ({ item, currentPath }) => {
+const NavLinkItem: React.FC<{ item: NavItem; currentPath: string }> = ({ item, currentPath }) => {
   const isActive = currentPath === item.href;
-
   return (
     <Link
       to={item.href}
