@@ -21,7 +21,7 @@ const AuthPage: React.FC = () => {
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [formData, setFormData] = useState({ email: '', password: '' });
   
-  const { signIn, signUp, user, isSuperAdmin, isStudioAdmin, loading: authLoading } = useAuth();
+  const { signIn, signUp, user, role, loading: authLoading } = useAuth();
   const { toast } = useToast();
   const navigate = useNavigate();
 
@@ -29,21 +29,10 @@ const AuthPage: React.FC = () => {
 
   // Redirect if already logged in - wait for role to load
   useEffect(() => {
-    if (user && !authLoading) {
-      // Small delay to let role data load
-      const timer = setTimeout(() => {
-        if (isSuperAdmin) {
-          navigate('/super-admin');
-        } else if (isStudioAdmin) {
-          navigate('/admin');
-        } else {
-          // Default to admin for any authenticated user
-          navigate('/admin');
-        }
-      }, 500);
-      return () => clearTimeout(timer);
+    if (user && !authLoading && role) {
+      navigate('/admin');
     }
-  }, [user, authLoading, isSuperAdmin, isStudioAdmin, navigate]);
+  }, [user, authLoading, role, navigate]);
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const { name, value } = e.target;
