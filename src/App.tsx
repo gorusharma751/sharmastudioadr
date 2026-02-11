@@ -22,6 +22,7 @@ import ProgramAlbumPage from "./pages/public/ProgramAlbumPage";
 import FindPhotosPage from "./pages/public/FindPhotosPage";
 import WeddingInvitationPage from "./pages/public/WeddingInvitationPage";
 import CustomPage from "./pages/public/CustomPage";
+import DigitalAlbumPage from "./pages/public/DigitalAlbumPage";
 
 // Layouts
 import SuperAdminLayout from "./layouts/SuperAdminLayout";
@@ -77,6 +78,7 @@ const App = () => (
             <Route path="/find-photos" element={<PublicPageWrapper><FindPhotosPage /></PublicPageWrapper>} />
             <Route path="/invitation" element={<PublicPageWrapper><WeddingInvitationPage /></PublicPageWrapper>} />
             <Route path="/page/:slug" element={<PublicPageWrapper><CustomPage /></PublicPageWrapper>} />
+            <Route path="/digital-album/:id" element={<DigitalAlbumPage />} />
 
             {/* User Routes (Customer Portal) */}
             <Route path="/user" element={<UserLayout />}>

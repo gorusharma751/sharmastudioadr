@@ -291,7 +291,7 @@ const ProgramsManager: React.FC = () => {
                 <div>
                   <h2 className="font-semibold text-lg">{selectedProgram.name}</h2>
                   <p className="text-sm text-muted-foreground">
-                    Public URL: /album/{selectedProgram.id}
+                    Public URL: <a href={`/digital-album/${selectedProgram.id}`} target="_blank" className="text-primary hover:underline">/digital-album/{selectedProgram.id}</a>
                   </p>
                 </div>
                 <Button size="sm" onClick={() => setIsImageDialogOpen(true)}>
