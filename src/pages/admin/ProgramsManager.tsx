@@ -11,6 +11,7 @@ import { Switch } from '@/components/ui/switch';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import { useToast } from '@/hooks/use-toast';
 import { ProgramAlbum, ProgramImage } from '@/types/database';
+import { getDirectImageUrl } from '@/lib/imageUtils';
 
 const ProgramsManager: React.FC = () => {
   const { currentStudio } = useAuth();
@@ -259,7 +260,7 @@ const ProgramsManager: React.FC = () => {
                 }`}
               >
                 {program.cover_image_url && (
-                  <img src={program.cover_image_url} alt="" className="w-full h-24 object-cover rounded-md mb-2" />
+                  <img src={getDirectImageUrl(program.cover_image_url)} alt="" className="w-full h-24 object-cover rounded-md mb-2" />
                 )}
                 <div className="flex items-center justify-between mb-1">
                   <h3 className="font-medium truncate">{program.name}</h3>
@@ -309,7 +310,7 @@ const ProgramsManager: React.FC = () => {
                   {programImages.map((image, index) => (
                     <motion.div key={image.id} initial={{ opacity: 0, scale: 0.9 }} animate={{ opacity: 1, scale: 1 }}
                       transition={{ delay: index * 0.05 }} className="relative group aspect-square rounded-lg overflow-hidden">
-                      <img src={image.image_url} alt={image.caption || ''} className="w-full h-full object-cover" />
+                      <img src={getDirectImageUrl(image.image_url)} alt={image.caption || ''} className="w-full h-full object-cover" />
                       <div className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
                         <Button size="icon" variant="secondary" onClick={() => handleDeleteImage(image.id)}>
                           <Trash2 size={16} />
@@ -399,7 +400,7 @@ const ProgramsManager: React.FC = () => {
             </div>
             {imageFormData.image_url && (
               <div className="aspect-video rounded-lg overflow-hidden bg-muted">
-                <img src={imageFormData.image_url} alt="Preview" className="w-full h-full object-contain" />
+                <img src={getDirectImageUrl(imageFormData.image_url)} alt="Preview" className="w-full h-full object-contain" />
               </div>
             )}
             <Button onClick={handleAddImage} disabled={!imageFormData.image_url} className="w-full">

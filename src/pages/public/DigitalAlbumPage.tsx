@@ -7,6 +7,7 @@ import { useIsMobile } from '@/hooks/use-mobile';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { getDirectImageUrl } from '@/lib/imageUtils';
 
 interface AlbumImage {
   id: string;
@@ -343,7 +344,7 @@ const DigitalAlbumPage: React.FC = () => {
               style={{ transformStyle: 'preserve-3d', transformOrigin: flipDirection === 'next' ? 'left center' : 'right center' }}
               className="relative aspect-[3/4] md:aspect-[4/3] rounded-lg overflow-hidden shadow-2xl"
             >
-              <img src={images[currentPage].image_url} alt={images[currentPage].caption || `Page ${currentPage + 1}`}
+              <img src={getDirectImageUrl(images[currentPage].image_url)} alt={images[currentPage].caption || `Page ${currentPage + 1}`}
                 className="w-full h-full object-cover" loading="eager" />
 
               {/* Watermark */}
