@@ -30,7 +30,7 @@ const defaultImages = [
 ];
 
 const ServicesPage: React.FC = () => {
-  const { studio, services, loading } = useStudio();
+  const { studio, settings, services, loading } = useStudio();
 
   if (loading) {
     return (
@@ -51,7 +51,7 @@ const ServicesPage: React.FC = () => {
 
   return (
     <div className="min-h-screen bg-background">
-      <GlassNavbar studioName={studio?.name || 'Studio'} />
+      <GlassNavbar studioName={studio?.name || 'Studio'} logoUrl={settings?.logo_url || undefined} />
       
       <motion.div
         initial={{ opacity: 0 }}
@@ -133,7 +133,7 @@ const ServicesPage: React.FC = () => {
         </SectionContainer>
       </motion.div>
       
-      <Footer studioName={studio?.name || 'Studio'} />
+      <Footer studioName={studio?.name || 'Studio'} logoUrl={settings?.logo_url || undefined} settings={settings} />
     </div>
   );
 };

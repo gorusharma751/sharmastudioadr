@@ -8,6 +8,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { getDirectImageUrl } from '@/lib/imageUtils';
+import { playPageTurnSound } from '@/lib/pageTurnSound';
 
 interface AlbumImage {
   id: string;
@@ -90,7 +91,6 @@ const DigitalAlbumPage: React.FC = () => {
         email: leadData.email || null,
       });
       setShowLeadForm(false);
-      // Start music if available
       const musicUrl = album.music_url || albumSettings?.music_url;
       if (musicUrl && audioRef.current) {
         audioRef.current.src = musicUrl;
@@ -120,10 +120,11 @@ const DigitalAlbumPage: React.FC = () => {
     if (newPage < 0 || newPage >= images.length) return;
     setFlipDirection(direction);
     setIsFlipping(true);
+    playPageTurnSound();
     setTimeout(() => {
       setCurrentPage(newPage);
       setIsFlipping(false);
-    }, 600);
+    }, 700);
   }, [currentPage, images.length, isFlipping]);
 
   const handleKeyDown = useCallback((e: KeyboardEvent) => {
@@ -185,12 +186,7 @@ const DigitalAlbumPage: React.FC = () => {
     return (
       <div className="min-h-screen bg-[#0a0a0a] flex items-center justify-center px-4"
         style={{ backgroundImage: 'radial-gradient(ellipse at center, #1a1a2e 0%, #0a0a0a 70%)' }}>
-        <motion.div
-          initial={{ opacity: 0, y: 30 }}
-          animate={{ opacity: 1, y: 0 }}
-          className="w-full max-w-md"
-        >
-          {/* Studio Logo */}
+        <motion.div initial={{ opacity: 0, y: 30 }} animate={{ opacity: 1, y: 0 }} className="w-full max-w-md">
           <div className="text-center mb-8">
             {logoUrl ? (
               <img src={logoUrl} alt={studioName} className="h-16 w-auto mx-auto mb-4" />
@@ -202,53 +198,27 @@ const DigitalAlbumPage: React.FC = () => {
             <h1 className="text-white text-xl font-bold">{studioName}</h1>
             <p className="text-amber-200/60 text-sm mt-1">{album.name}</p>
           </div>
-
-          <form onSubmit={handleLeadSubmit}
-            className="bg-white/5 backdrop-blur-xl border border-amber-500/20 rounded-2xl p-6 space-y-4">
+          <form onSubmit={handleLeadSubmit} className="bg-white/5 backdrop-blur-xl border border-amber-500/20 rounded-2xl p-6 space-y-4">
             <h2 className="text-white text-center font-semibold text-lg">{formHeading}</h2>
-
             {formFields.includes('name') && (
               <div className="space-y-1">
                 <Label className="text-amber-200/80 text-sm">Name *</Label>
-                <Input
-                  value={leadData.name}
-                  onChange={e => setLeadData({ ...leadData, name: e.target.value })}
-                  placeholder="Your Name"
-                  required
-                  className="bg-white/10 border-amber-500/20 text-white placeholder:text-white/30"
-                />
+                <Input value={leadData.name} onChange={e => setLeadData({ ...leadData, name: e.target.value })} placeholder="Your Name" required className="bg-white/10 border-amber-500/20 text-white placeholder:text-white/30" />
               </div>
             )}
             {formFields.includes('phone') && (
               <div className="space-y-1">
                 <Label className="text-amber-200/80 text-sm">Phone *</Label>
-                <Input
-                  value={leadData.phone}
-                  onChange={e => setLeadData({ ...leadData, phone: e.target.value })}
-                  placeholder="Your Phone Number"
-                  required
-                  className="bg-white/10 border-amber-500/20 text-white placeholder:text-white/30"
-                />
+                <Input value={leadData.phone} onChange={e => setLeadData({ ...leadData, phone: e.target.value })} placeholder="Your Phone Number" required className="bg-white/10 border-amber-500/20 text-white placeholder:text-white/30" />
               </div>
             )}
             {formFields.includes('email') && (
               <div className="space-y-1">
                 <Label className="text-amber-200/80 text-sm">Email</Label>
-                <Input
-                  type="email"
-                  value={leadData.email}
-                  onChange={e => setLeadData({ ...leadData, email: e.target.value })}
-                  placeholder="Your Email"
-                  className="bg-white/10 border-amber-500/20 text-white placeholder:text-white/30"
-                />
+                <Input type="email" value={leadData.email} onChange={e => setLeadData({ ...leadData, email: e.target.value })} placeholder="Your Email" className="bg-white/10 border-amber-500/20 text-white placeholder:text-white/30" />
               </div>
             )}
-
-            <Button
-              type="submit"
-              disabled={submittingLead}
-              className="w-full bg-gradient-to-r from-amber-500 to-amber-600 text-black font-semibold hover:from-amber-400 hover:to-amber-500"
-            >
+            <Button type="submit" disabled={submittingLead} className="w-full bg-gradient-to-r from-amber-500 to-amber-600 text-black font-semibold hover:from-amber-400 hover:to-amber-500">
               {submittingLead ? 'Please wait...' : formButtonText}
             </Button>
           </form>
@@ -257,7 +227,6 @@ const DigitalAlbumPage: React.FC = () => {
     );
   }
 
-  // Watermark position classes
   const wpClasses: Record<string, string> = {
     'top-left': 'top-4 left-4',
     'top-right': 'top-4 right-4',
@@ -312,7 +281,7 @@ const DigitalAlbumPage: React.FC = () => {
         </div>
       </header>
 
-      {/* Album Viewer */}
+      {/* Album Viewer - Book Style */}
       <div
         className="flex-1 flex items-center justify-center relative overflow-hidden px-4 py-6"
         onTouchStart={handleTouchStart}
@@ -332,33 +301,96 @@ const DigitalAlbumPage: React.FC = () => {
           </>
         )}
 
-        <div className="relative w-full max-w-3xl mx-auto" style={{ perspective: '1500px' }}>
-          <div className="absolute inset-x-0 bottom-0 h-8 bg-gradient-to-t from-black/40 to-transparent rounded-b-lg blur-lg" />
-          <AnimatePresence mode="wait">
+        {/* Book Container */}
+        <div className="relative w-full max-w-3xl mx-auto" style={{ perspective: '2000px' }}>
+          {/* Book spine shadow */}
+          <div className="absolute left-1/2 top-0 bottom-0 w-3 -translate-x-1/2 z-20 pointer-events-none"
+            style={{ background: 'linear-gradient(90deg, rgba(0,0,0,0.4) 0%, rgba(0,0,0,0.1) 30%, rgba(0,0,0,0) 50%, rgba(0,0,0,0.1) 70%, rgba(0,0,0,0.4) 100%)' }} />
+
+          {/* Page shadow underneath */}
+          <div className="absolute inset-x-4 bottom-0 h-6 bg-gradient-to-t from-black/50 to-transparent rounded-b-lg blur-md" />
+
+          <AnimatePresence mode="wait" initial={false}>
             <motion.div
               key={currentPage}
-              initial={isMobile ? { opacity: 0, x: flipDirection === 'next' ? 300 : -300 } : { rotateY: flipDirection === 'next' ? -90 : 90, opacity: 0.5 }}
-              animate={isMobile ? { opacity: 1, x: 0 } : { rotateY: 0, opacity: 1 }}
-              exit={isMobile ? { opacity: 0, x: flipDirection === 'next' ? -300 : 300 } : { rotateY: flipDirection === 'next' ? 90 : -90, opacity: 0.5 }}
-              transition={{ duration: 0.6, ease: [0.4, 0, 0.2, 1] }}
-              style={{ transformStyle: 'preserve-3d', transformOrigin: flipDirection === 'next' ? 'left center' : 'right center' }}
-              className="relative aspect-[3/4] md:aspect-[4/3] rounded-lg overflow-hidden shadow-2xl"
+              initial={
+                isMobile
+                  ? { opacity: 0, x: flipDirection === 'next' ? 300 : -300 }
+                  : {
+                      rotateY: flipDirection === 'next' ? -180 : 180,
+                      opacity: 0,
+                      scale: 0.85,
+                    }
+              }
+              animate={
+                isMobile
+                  ? { opacity: 1, x: 0 }
+                  : { rotateY: 0, opacity: 1, scale: 1 }
+              }
+              exit={
+                isMobile
+                  ? { opacity: 0, x: flipDirection === 'next' ? -300 : 300 }
+                  : {
+                      rotateY: flipDirection === 'next' ? 180 : -180,
+                      opacity: 0,
+                      scale: 0.85,
+                    }
+              }
+              transition={{
+                duration: 0.7,
+                ease: [0.22, 0.68, 0.36, 1.0],
+              }}
+              style={{
+                transformStyle: 'preserve-3d',
+                transformOrigin: flipDirection === 'next' ? 'left center' : 'right center',
+                backfaceVisibility: 'hidden',
+              }}
+              className="relative aspect-[3/4] md:aspect-[4/3] rounded-lg overflow-hidden"
             >
-              <img src={getDirectImageUrl(images[currentPage].image_url)} alt={images[currentPage].caption || `Page ${currentPage + 1}`}
-                className="w-full h-full object-cover" loading="eager" />
+              {/* Page texture overlay */}
+              <div className="absolute inset-0 z-10 pointer-events-none"
+                style={{
+                  background: `
+                    linear-gradient(90deg, rgba(0,0,0,0.15) 0%, transparent 5%, transparent 95%, rgba(0,0,0,0.1) 100%),
+                    linear-gradient(180deg, rgba(255,255,255,0.03) 0%, transparent 30%, transparent 70%, rgba(0,0,0,0.05) 100%)
+                  `,
+                }} />
+
+              {/* Page curl effect on edges */}
+              <div className="absolute top-0 right-0 w-8 h-8 z-10 pointer-events-none"
+                style={{
+                  background: 'linear-gradient(135deg, transparent 50%, rgba(0,0,0,0.1) 50%)',
+                  borderRadius: '0 0.5rem 0 0',
+                }} />
+
+              <img
+                src={getDirectImageUrl(images[currentPage].image_url)}
+                alt={images[currentPage].caption || `Page ${currentPage + 1}`}
+                className="w-full h-full object-cover"
+                loading="eager"
+                style={{
+                  boxShadow: 'inset 0 0 60px rgba(0,0,0,0.15)',
+                }}
+              />
+
+              {/* Book edge shadow (left) */}
+              <div className="absolute inset-y-0 left-0 w-6 pointer-events-none"
+                style={{ background: 'linear-gradient(90deg, rgba(0,0,0,0.25) 0%, transparent 100%)' }} />
+
+              {/* Book edge highlight (right) */}
+              <div className="absolute inset-y-0 right-0 w-4 pointer-events-none"
+                style={{ background: 'linear-gradient(270deg, rgba(0,0,0,0.15) 0%, transparent 100%)' }} />
 
               {/* Watermark */}
               {watermarkEnabled && logoUrl && (
-                <div className={`absolute ${wpClasses[watermarkPosition] || wpClasses['bottom-right']} opacity-30 pointer-events-none`}>
+                <div className={`absolute ${wpClasses[watermarkPosition] || wpClasses['bottom-right']} opacity-30 pointer-events-none z-10`}>
                   <img src={logoUrl} alt="" className="h-10 w-auto" />
                 </div>
               )}
 
-              <div className="absolute inset-y-0 right-0 w-4 bg-gradient-to-l from-black/20 to-transparent" />
-              <div className="absolute inset-y-0 left-0 w-2 bg-gradient-to-r from-black/30 to-transparent" />
-
+              {/* Caption */}
               {images[currentPage].caption && (
-                <div className="absolute bottom-0 left-0 right-0 p-4 bg-gradient-to-t from-black/80 via-black/40 to-transparent">
+                <div className="absolute bottom-0 left-0 right-0 p-4 bg-gradient-to-t from-black/80 via-black/40 to-transparent z-10">
                   <p className="text-white text-sm font-medium">{images[currentPage].caption}</p>
                 </div>
               )}
@@ -368,7 +400,7 @@ const DigitalAlbumPage: React.FC = () => {
 
         {isMobile && currentPage === 0 && (
           <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="absolute bottom-4 left-1/2 -translate-x-1/2 text-white/40 text-xs flex items-center gap-2">
-            <ChevronLeft size={14} /> Swipe to navigate <ChevronRight size={14} />
+            <ChevronLeft size={14} /> Swipe to flip pages <ChevronRight size={14} />
           </motion.div>
         )}
       </div>
@@ -382,7 +414,7 @@ const DigitalAlbumPage: React.FC = () => {
           <div className="flex items-center gap-1">
             {images.length <= 20 ? (
               images.map((_, i) => (
-                <button key={i} onClick={() => { setFlipDirection(i > currentPage ? 'next' : 'prev'); setCurrentPage(i); }}
+                <button key={i} onClick={() => { setFlipDirection(i > currentPage ? 'next' : 'prev'); playPageTurnSound(); setCurrentPage(i); }}
                   className={`w-1.5 h-1.5 rounded-full transition-all ${i === currentPage ? 'bg-amber-400 w-4' : 'bg-white/20 hover:bg-white/40'}`} />
               ))
             ) : (

@@ -10,12 +10,13 @@ import { useStudio } from '@/contexts/StudioContext';
 
 const Index: React.FC = () => {
   const navigate = useNavigate();
-  const { studio } = useStudio();
+  const { studio, settings } = useStudio();
 
   return (
     <div className="min-h-screen bg-background">
       <GlassNavbar
         studioName={studio?.name || "StudioSaaS"}
+        logoUrl={settings?.logo_url || undefined}
         showAuth={true}
         onAuthClick={() => navigate('/auth')}
       />
@@ -23,7 +24,11 @@ const Index: React.FC = () => {
       <ServicesSection />
       <PortfolioSection />
       <BookingSection studioId={studio?.id || "demo"} />
-      <Footer studioName={studio?.name || "StudioSaaS"} />
+      <Footer
+        studioName={studio?.name || "StudioSaaS"}
+        logoUrl={settings?.logo_url || undefined}
+        settings={settings}
+      />
     </div>
   );
 };

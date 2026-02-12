@@ -12,6 +12,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '
 import { useToast } from '@/hooks/use-toast';
 import { ProgramAlbum, ProgramImage } from '@/types/database';
 import { getDirectImageUrl } from '@/lib/imageUtils';
+import QrCodeWithLogo from '@/components/QrCodeWithLogo';
 
 const ProgramsManager: React.FC = () => {
   const { currentStudio } = useAuth();
@@ -36,6 +37,14 @@ const ProgramsManager: React.FC = () => {
   });
   const [imageFormData, setImageFormData] = useState({ image_url: '', caption: '' });
   const [bulkUrls, setBulkUrls] = useState('');
+  const [studioLogoUrl, setStudioLogoUrl] = useState<string | undefined>();
+
+  useEffect(() => {
+    if (currentStudio?.id) {
+      supabase.from('studio_settings').select('logo_url').eq('studio_id', currentStudio.id).maybeSingle()
+        .then(({ data }) => { if (data?.logo_url) setStudioLogoUrl(data.logo_url); });
+    }
+  }, [currentStudio?.id]);
 
   useEffect(() => {
     if (currentStudio?.id) fetchPrograms();
@@ -420,7 +429,7 @@ const ProgramsManager: React.FC = () => {
         </DialogContent>
       </Dialog>
 
-      {/* QR Dialog */}
+      {/* QR Dialog with Logo & Border */}
       <Dialog open={isQrDialogOpen} onOpenChange={setIsQrDialogOpen}>
         <DialogContent>
           <DialogHeader>
@@ -428,16 +437,15 @@ const ProgramsManager: React.FC = () => {
           </DialogHeader>
           {selectedProgram && (
             <div className="py-4 text-center space-y-4">
-              <img src={getQrUrl(selectedProgram)} alt="QR Code" className="mx-auto w-64 h-64 rounded-lg" />
+              <QrCodeWithLogo
+                albumUrl={`${window.location.origin}/digital-album/${selectedProgram.id}`}
+                logoUrl={studioLogoUrl}
+                studioName={currentStudio?.name || 'Studio'}
+              />
               <p className="text-sm text-muted-foreground break-all">{`${window.location.origin}/digital-album/${selectedProgram.id}`}</p>
-              <div className="flex gap-2 justify-center">
-                <Button variant="outline" onClick={() => copyAlbumUrl(selectedProgram)}>
-                  <Copy size={14} className="mr-2" /> Copy Link
-                </Button>
-                <a href={getQrUrl(selectedProgram)} download={`qr-${selectedProgram.slug || selectedProgram.id}.png`}>
-                  <Button>Download QR</Button>
-                </a>
-              </div>
+              <Button variant="outline" onClick={() => copyAlbumUrl(selectedProgram)}>
+                <Copy size={14} className="mr-2" /> Copy Link
+              </Button>
             </div>
           )}
         </DialogContent>

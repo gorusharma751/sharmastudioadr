@@ -14,7 +14,7 @@ import { getDirectImageUrl } from '@/lib/imageUtils';
 
 const ProgramAlbumPage: React.FC = () => {
   const { id } = useParams<{ id: string }>();
-  const { studio } = useStudio();
+  const { studio, settings } = useStudio();
   const [album, setAlbum] = useState<ProgramAlbum | null>(null);
   const [images, setImages] = useState<ProgramImage[]>([]);
   const [currentIndex, setCurrentIndex] = useState(0);
@@ -109,7 +109,7 @@ const ProgramAlbumPage: React.FC = () => {
   if (loading) {
     return (
       <div className="min-h-screen bg-background">
-        <GlassNavbar studioName={studio?.name || 'Studio'} />
+        <GlassNavbar studioName={studio?.name || 'Studio'} logoUrl={settings?.logo_url || undefined} />
         <div className="pt-32 pb-20">
           <SectionContainer>
             <Skeleton className="h-12 w-64 mb-8 mx-auto" />
@@ -123,7 +123,7 @@ const ProgramAlbumPage: React.FC = () => {
   if (!album) {
     return (
       <div className="min-h-screen bg-background">
-        <GlassNavbar studioName={studio?.name || 'Studio'} />
+        <GlassNavbar studioName={studio?.name || 'Studio'} logoUrl={settings?.logo_url || undefined} />
         <div className="pt-32 pb-20">
           <SectionContainer>
             <div className="text-center py-20">
@@ -132,14 +132,14 @@ const ProgramAlbumPage: React.FC = () => {
             </div>
           </SectionContainer>
         </div>
-        <Footer studioName={studio?.name || 'Studio'} />
+        <Footer studioName={studio?.name || 'Studio'} logoUrl={settings?.logo_url || undefined} settings={settings} />
       </div>
     );
   }
 
   return (
     <div className="min-h-screen bg-background">
-      <GlassNavbar studioName={studio?.name || 'Studio'} />
+      <GlassNavbar studioName={studio?.name || 'Studio'} logoUrl={settings?.logo_url || undefined} />
       
       <motion.div
         initial={{ opacity: 0 }}
@@ -297,7 +297,7 @@ const ProgramAlbumPage: React.FC = () => {
         </SectionContainer>
       </motion.div>
       
-      <Footer studioName={studio?.name || 'Studio'} />
+      <Footer studioName={studio?.name || 'Studio'} logoUrl={settings?.logo_url || undefined} settings={settings} />
     </div>
   );
 };
