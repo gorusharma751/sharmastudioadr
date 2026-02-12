@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useParams } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
-import { ChevronLeft, ChevronRight, Phone, MessageCircle, Volume2, VolumeX, Maximize, X } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Phone, MessageCircle, Volume2, VolumeX, Maximize, X, BookOpen } from 'lucide-react';
 import { supabase } from '@/integrations/supabase/client';
 import { useIsMobile } from '@/hooks/use-mobile';
 import { Button } from '@/components/ui/button';
@@ -33,6 +33,9 @@ const DigitalAlbumPage: React.FC = () => {
   const [leadData, setLeadData] = useState({ name: '', phone: '', email: '' });
   const [submittingLead, setSubmittingLead] = useState(false);
   const [isMusicPlaying, setIsMusicPlaying] = useState(false);
+  const [flipSoundEnabled, setFlipSoundEnabled] = useState(true);
+  const [flipState, setFlipState] = useState<'idle' | 'flipping'>('idle');
+  const [prevPage, setPrevPage] = useState(0);
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const touchStartX = useRef(0);
   const touchEndX = useRef(0);
@@ -120,12 +123,15 @@ const DigitalAlbumPage: React.FC = () => {
     if (newPage < 0 || newPage >= images.length) return;
     setFlipDirection(direction);
     setIsFlipping(true);
-    playPageTurnSound();
+    setPrevPage(currentPage);
+    setFlipState('flipping');
+    if (flipSoundEnabled) playPageTurnSound();
     setTimeout(() => {
       setCurrentPage(newPage);
+      setFlipState('idle');
       setIsFlipping(false);
-    }, 700);
-  }, [currentPage, images.length, isFlipping]);
+    }, 800);
+  }, [currentPage, images.length, isFlipping, flipSoundEnabled]);
 
   const handleKeyDown = useCallback((e: KeyboardEvent) => {
     if (e.key === 'ArrowRight') goToPage('next');
@@ -264,6 +270,10 @@ const DigitalAlbumPage: React.FC = () => {
               {isMusicPlaying ? <Volume2 size={16} /> : <VolumeX size={16} />}
             </button>
           )}
+          <button onClick={() => setFlipSoundEnabled(!flipSoundEnabled)} className={`p-2 rounded-full transition-colors ${flipSoundEnabled ? 'bg-amber-500/10 text-amber-400' : 'bg-white/5 text-white/30'}`}
+            title={flipSoundEnabled ? 'Page flip sound ON' : 'Page flip sound OFF'}>
+            <BookOpen size={16} />
+          </button>
           {studioPhone && (
             <>
               <a href={`tel:${studioPhone}`} className="p-2 rounded-full bg-amber-500/10 text-amber-400 hover:bg-amber-500/20 transition-colors">
@@ -302,84 +312,78 @@ const DigitalAlbumPage: React.FC = () => {
         )}
 
         {/* Book Container */}
-        <div className="relative w-full max-w-3xl mx-auto" style={{ perspective: '2000px' }}>
-          {/* Book spine shadow */}
-          <div className="absolute left-1/2 top-0 bottom-0 w-3 -translate-x-1/2 z-20 pointer-events-none"
-            style={{ background: 'linear-gradient(90deg, rgba(0,0,0,0.4) 0%, rgba(0,0,0,0.1) 30%, rgba(0,0,0,0) 50%, rgba(0,0,0,0.1) 70%, rgba(0,0,0,0.4) 100%)' }} />
+        <div className="relative w-full max-w-3xl mx-auto" style={{ perspective: '1800px', perspectiveOrigin: '50% 50%' }}>
+          {/* Book base shadow */}
+          <div className="absolute inset-x-8 -bottom-3 h-8 bg-black/60 rounded-full blur-xl" />
 
-          {/* Page shadow underneath */}
-          <div className="absolute inset-x-4 bottom-0 h-6 bg-gradient-to-t from-black/50 to-transparent rounded-b-lg blur-md" />
+          {/* The book container */}
+          <div className="relative aspect-[3/4] md:aspect-[4/3] rounded-lg overflow-visible">
+            
+            {/* Current page (stays visible behind the flipping page) */}
+            <div className="absolute inset-0 rounded-lg overflow-hidden shadow-2xl">
+              <img
+                src={getDirectImageUrl(images[flipState === 'flipping' ? (flipDirection === 'next' ? Math.min(currentPage + 1, images.length - 1) : Math.max(currentPage - 1, 0)) : currentPage].image_url)}
+                alt={`Page`}
+                className="w-full h-full object-cover"
+                loading="eager"
+              />
+              {/* Page texture */}
+              <div className="absolute inset-0 pointer-events-none"
+                style={{
+                  background: `
+                    linear-gradient(90deg, rgba(0,0,0,0.2) 0%, transparent 8%, transparent 92%, rgba(0,0,0,0.15) 100%),
+                    linear-gradient(180deg, rgba(255,255,255,0.04) 0%, transparent 50%, rgba(0,0,0,0.08) 100%)
+                  `,
+                }} />
+              {/* Watermark on base page */}
+              {watermarkEnabled && logoUrl && (
+                <div className={`absolute ${wpClasses[watermarkPosition] || wpClasses['bottom-right']} opacity-30 pointer-events-none z-10`}>
+                  <img src={logoUrl} alt="" className="h-10 w-auto" />
+                </div>
+              )}
+            </div>
 
-          <AnimatePresence mode="wait" initial={false}>
-            <motion.div
-              key={currentPage}
-              initial={
-                isMobile
-                  ? { opacity: 0, x: flipDirection === 'next' ? 300 : -300 }
-                  : {
-                      rotateY: flipDirection === 'next' ? -180 : 180,
-                      opacity: 0,
-                      scale: 0.85,
-                    }
-              }
-              animate={
-                isMobile
-                  ? { opacity: 1, x: 0 }
-                  : { rotateY: 0, opacity: 1, scale: 1 }
-              }
-              exit={
-                isMobile
-                  ? { opacity: 0, x: flipDirection === 'next' ? -300 : 300 }
-                  : {
-                      rotateY: flipDirection === 'next' ? 180 : -180,
-                      opacity: 0,
-                      scale: 0.85,
-                    }
-              }
-              transition={{
-                duration: 0.7,
-                ease: [0.22, 0.68, 0.36, 1.0],
-              }}
+            {/* Flipping page (the one that animates) */}
+            <div
+              className="absolute inset-0 rounded-lg overflow-hidden"
               style={{
                 transformStyle: 'preserve-3d',
                 transformOrigin: flipDirection === 'next' ? 'left center' : 'right center',
+                transform: flipState === 'flipping'
+                  ? `rotateY(${flipDirection === 'next' ? '-180deg' : '180deg'})`
+                  : 'rotateY(0deg)',
+                transition: 'transform 0.8s cubic-bezier(0.645, 0.045, 0.355, 1.000)',
+                zIndex: 10,
                 backfaceVisibility: 'hidden',
               }}
-              className="relative aspect-[3/4] md:aspect-[4/3] rounded-lg overflow-hidden"
             >
+              <img
+                src={getDirectImageUrl(images[currentPage].image_url)}
+                alt={images[currentPage].caption || `Page ${currentPage + 1}`}
+                className="w-full h-full object-cover"
+                loading="eager"
+              />
+              
+              {/* Page edge shadows for 3D depth */}
+              <div className="absolute inset-y-0 left-0 w-8 pointer-events-none"
+                style={{ background: 'linear-gradient(90deg, rgba(0,0,0,0.3) 0%, transparent 100%)' }} />
+              <div className="absolute inset-y-0 right-0 w-6 pointer-events-none"
+                style={{ background: 'linear-gradient(270deg, rgba(0,0,0,0.2) 0%, transparent 100%)' }} />
+              
               {/* Page texture overlay */}
-              <div className="absolute inset-0 z-10 pointer-events-none"
+              <div className="absolute inset-0 pointer-events-none"
                 style={{
                   background: `
                     linear-gradient(90deg, rgba(0,0,0,0.15) 0%, transparent 5%, transparent 95%, rgba(0,0,0,0.1) 100%),
                     linear-gradient(180deg, rgba(255,255,255,0.03) 0%, transparent 30%, transparent 70%, rgba(0,0,0,0.05) 100%)
                   `,
                 }} />
-
-              {/* Page curl effect on edges */}
-              <div className="absolute top-0 right-0 w-8 h-8 z-10 pointer-events-none"
+              
+              {/* Page curl corner */}
+              <div className="absolute top-0 right-0 w-12 h-12 pointer-events-none"
                 style={{
-                  background: 'linear-gradient(135deg, transparent 50%, rgba(0,0,0,0.1) 50%)',
-                  borderRadius: '0 0.5rem 0 0',
+                  background: 'linear-gradient(135deg, transparent 40%, rgba(255,255,255,0.08) 45%, rgba(0,0,0,0.12) 50%, rgba(0,0,0,0.2) 100%)',
                 }} />
-
-              <img
-                src={getDirectImageUrl(images[currentPage].image_url)}
-                alt={images[currentPage].caption || `Page ${currentPage + 1}`}
-                className="w-full h-full object-cover"
-                loading="eager"
-                style={{
-                  boxShadow: 'inset 0 0 60px rgba(0,0,0,0.15)',
-                }}
-              />
-
-              {/* Book edge shadow (left) */}
-              <div className="absolute inset-y-0 left-0 w-6 pointer-events-none"
-                style={{ background: 'linear-gradient(90deg, rgba(0,0,0,0.25) 0%, transparent 100%)' }} />
-
-              {/* Book edge highlight (right) */}
-              <div className="absolute inset-y-0 right-0 w-4 pointer-events-none"
-                style={{ background: 'linear-gradient(270deg, rgba(0,0,0,0.15) 0%, transparent 100%)' }} />
 
               {/* Watermark */}
               {watermarkEnabled && logoUrl && (
@@ -394,8 +398,28 @@ const DigitalAlbumPage: React.FC = () => {
                   <p className="text-white text-sm font-medium">{images[currentPage].caption}</p>
                 </div>
               )}
-            </motion.div>
-          </AnimatePresence>
+            </div>
+
+            {/* Dynamic shadow during flip */}
+            {flipState === 'flipping' && (
+              <div 
+                className="absolute inset-0 pointer-events-none z-20 rounded-lg"
+                style={{
+                  background: flipDirection === 'next' 
+                    ? 'linear-gradient(90deg, transparent 0%, rgba(0,0,0,0.3) 40%, rgba(0,0,0,0.5) 50%, transparent 60%)'
+                    : 'linear-gradient(270deg, transparent 0%, rgba(0,0,0,0.3) 40%, rgba(0,0,0,0.5) 50%, transparent 60%)',
+                  animation: 'flipShadow 0.8s cubic-bezier(0.645, 0.045, 0.355, 1.000) forwards',
+                }}
+              />
+            )}
+
+            {/* Book spine */}
+            <div className="absolute left-1/2 top-0 bottom-0 w-1 -translate-x-1/2 z-30 pointer-events-none"
+              style={{ 
+                background: 'linear-gradient(90deg, rgba(0,0,0,0.5) 0%, rgba(0,0,0,0.15) 40%, rgba(255,255,255,0.05) 50%, rgba(0,0,0,0.15) 60%, rgba(0,0,0,0.5) 100%)',
+                boxShadow: '0 0 8px rgba(0,0,0,0.3)',
+              }} />
+          </div>
         </div>
 
         {isMobile && currentPage === 0 && (
@@ -414,7 +438,7 @@ const DigitalAlbumPage: React.FC = () => {
           <div className="flex items-center gap-1">
             {images.length <= 20 ? (
               images.map((_, i) => (
-                <button key={i} onClick={() => { setFlipDirection(i > currentPage ? 'next' : 'prev'); playPageTurnSound(); setCurrentPage(i); }}
+                <button key={i} onClick={() => { setFlipDirection(i > currentPage ? 'next' : 'prev'); if (flipSoundEnabled) playPageTurnSound(); setCurrentPage(i); }}
                   className={`w-1.5 h-1.5 rounded-full transition-all ${i === currentPage ? 'bg-amber-400 w-4' : 'bg-white/20 hover:bg-white/40'}`} />
               ))
             ) : (
