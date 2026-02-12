@@ -10,6 +10,7 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { supabase } from '@/integrations/supabase/client';
 import { useStudio } from '@/contexts/StudioContext';
 import { ProgramAlbum, ProgramImage } from '@/types/database';
+import { getDirectImageUrl } from '@/lib/imageUtils';
 
 const ProgramAlbumPage: React.FC = () => {
   const { id } = useParams<{ id: string }>();
@@ -204,7 +205,7 @@ const ProgramAlbumPage: React.FC = () => {
                     style={{ transformStyle: 'preserve-3d' }}
                   >
                     <img
-                      src={images[currentIndex].image_url}
+                      src={getDirectImageUrl(images[currentIndex].image_url)}
                       alt={images[currentIndex].caption || `Photo ${currentIndex + 1}`}
                       className="w-full h-full object-contain"
                     />
@@ -261,7 +262,7 @@ const ProgramAlbumPage: React.FC = () => {
                     }`}
                   >
                     <img
-                      src={image.image_url}
+                      src={getDirectImageUrl(image.image_url)}
                       alt={`Thumbnail ${index + 1}`}
                       className="w-full h-full object-cover"
                     />
