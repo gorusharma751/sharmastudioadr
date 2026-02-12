@@ -18,7 +18,7 @@ const AboutPage: React.FC = () => {
 
   return (
     <div className="min-h-screen bg-background">
-      <GlassNavbar studioName={studio?.name || 'Studio'} />
+      <GlassNavbar studioName={studio?.name || 'Studio'} logoUrl={settings?.logo_url || undefined} />
       
       <motion.div
         initial={{ opacity: 0 }}
@@ -195,7 +195,7 @@ const AboutPage: React.FC = () => {
         </section>
       </motion.div>
       
-      <Footer studioName={studio?.name || 'Studio'} />
+      <Footer studioName={studio?.name || 'Studio'} logoUrl={settings?.logo_url || undefined} settings={settings} />
     </div>
   );
 };

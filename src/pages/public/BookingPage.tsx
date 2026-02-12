@@ -50,7 +50,7 @@ const serviceOptions = [
 ];
 
 const BookingPage: React.FC = () => {
-  const { studio, services } = useStudio();
+  const { studio, settings, services } = useStudio();
   const { toast } = useToast();
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isSuccess, setIsSuccess] = useState(false);
@@ -113,7 +113,7 @@ const BookingPage: React.FC = () => {
 
   return (
     <div className="min-h-screen bg-background">
-      <GlassNavbar studioName={studio?.name || 'Studio'} />
+      <GlassNavbar studioName={studio?.name || 'Studio'} logoUrl={settings?.logo_url || undefined} />
       
       <motion.div
         initial={{ opacity: 0 }}
@@ -333,7 +333,7 @@ const BookingPage: React.FC = () => {
         </SectionContainer>
       </motion.div>
       
-      <Footer studioName={studio?.name || 'Studio'} />
+      <Footer studioName={studio?.name || 'Studio'} logoUrl={settings?.logo_url || undefined} settings={settings} />
     </div>
   );
 };

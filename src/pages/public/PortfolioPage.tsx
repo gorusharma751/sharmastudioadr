@@ -9,7 +9,7 @@ import { useStudio } from '@/contexts/StudioContext';
 import { Skeleton } from '@/components/ui/skeleton';
 
 const PortfolioPage: React.FC = () => {
-  const { studio, portfolioAlbums, loading } = useStudio();
+  const { studio, settings, portfolioAlbums, loading } = useStudio();
   const navigate = useNavigate();
 
   if (loading) {
@@ -31,7 +31,7 @@ const PortfolioPage: React.FC = () => {
 
   return (
     <div className="min-h-screen bg-background">
-      <GlassNavbar studioName={studio?.name || 'Studio'} />
+      <GlassNavbar studioName={studio?.name || 'Studio'} logoUrl={settings?.logo_url || undefined} />
       
       <motion.div
         initial={{ opacity: 0 }}
@@ -118,7 +118,7 @@ const PortfolioPage: React.FC = () => {
         </SectionContainer>
       </motion.div>
       
-      <Footer studioName={studio?.name || 'Studio'} />
+      <Footer studioName={studio?.name || 'Studio'} logoUrl={settings?.logo_url || undefined} settings={settings} />
     </div>
   );
 };
