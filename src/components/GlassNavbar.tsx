@@ -70,6 +70,7 @@ const GlassNavbar: React.FC<GlassNavbarProps> = ({
     { label: 'Home', href: '/' },
     { label: 'Services', href: '/services' },
     { label: 'Portfolio', href: '/portfolio' },
+    { label: 'Find Photos', href: '/find-photos' },
     { label: 'About', href: '/about' },
     { label: 'Booking', href: '/booking' },
     { label: 'Contact', href: '/contact' },
