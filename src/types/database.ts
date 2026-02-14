@@ -58,6 +58,9 @@ export interface StudioSettings {
   social_youtube: string | null;
   google_drive_folder: string | null;
   webhook_url: string | null;
+  mongodb_uri: string | null;
+  python_api_url: string | null;
+  google_service_account_key: string | null;
   created_at: string;
   updated_at: string;
 }

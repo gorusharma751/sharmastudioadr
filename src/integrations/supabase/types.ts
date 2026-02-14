@@ -649,12 +649,15 @@ export type Database = {
           contact_phone: string | null
           created_at: string
           google_drive_folder: string | null
+          google_service_account_key: string | null
           id: string
           logo_url: string | null
           meta_description: string | null
           meta_keywords: string | null
           meta_title: string | null
+          mongodb_uri: string | null
           primary_color: string | null
+          python_api_url: string | null
           secondary_color: string | null
           social_facebook: string | null
           social_instagram: string | null
@@ -670,12 +673,15 @@ export type Database = {
           contact_phone?: string | null
           created_at?: string
           google_drive_folder?: string | null
+          google_service_account_key?: string | null
           id?: string
           logo_url?: string | null
           meta_description?: string | null
           meta_keywords?: string | null
           meta_title?: string | null
+          mongodb_uri?: string | null
           primary_color?: string | null
+          python_api_url?: string | null
           secondary_color?: string | null
           social_facebook?: string | null
           social_instagram?: string | null
@@ -691,12 +697,15 @@ export type Database = {
           contact_phone?: string | null
           created_at?: string
           google_drive_folder?: string | null
+          google_service_account_key?: string | null
           id?: string
           logo_url?: string | null
           meta_description?: string | null
           meta_keywords?: string | null
           meta_title?: string | null
+          mongodb_uri?: string | null
           primary_color?: string | null
+          python_api_url?: string | null
           secondary_color?: string | null
           social_facebook?: string | null
           social_instagram?: string | null

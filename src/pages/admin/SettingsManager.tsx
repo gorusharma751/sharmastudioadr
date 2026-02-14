@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
-import { Save, Palette, Mail, Phone, MapPin, Globe, Link2, Image } from 'lucide-react';
+import { Save, Palette, Mail, Phone, MapPin, Globe, Link2, Image, Database, Server, Key, Eye, EyeOff } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
 import { supabase } from '@/integrations/supabase/client';
 import { Button } from '@/components/ui/button';
@@ -16,6 +16,7 @@ const SettingsManager: React.FC = () => {
   const { toast } = useToast();
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [showMongoUri, setShowMongoUri] = useState(false);
   const [studioData, setStudioData] = useState({
     name: '',
     slug: '',
@@ -37,6 +38,9 @@ const SettingsManager: React.FC = () => {
     social_youtube: '',
     google_drive_folder: '',
     webhook_url: '',
+    mongodb_uri: '',
+    python_api_url: '',
+    google_service_account_key: '',
   });
 
   useEffect(() => {
@@ -391,36 +395,87 @@ const SettingsManager: React.FC = () => {
           <motion.div
             initial={{ opacity: 0, y: 10 }}
             animate={{ opacity: 1, y: 0 }}
-            className="glass-card p-6 space-y-4"
+            className="glass-card p-6 space-y-6"
           >
             <h3 className="font-semibold flex items-center gap-2">
               <Link2 size={18} className="text-primary" />
-              Integrations
+              Google Drive Integration
             </h3>
-            <p className="text-sm text-muted-foreground">
-              Configure integrations for automation features
-            </p>
-            <div className="space-y-4 mt-4">
+            <div className="space-y-2">
+              <Label>Google Drive Folder Link</Label>
+              <Input
+                value={settings.google_drive_folder || ''}
+                onChange={e => setSettings({ ...settings, google_drive_folder: e.target.value })}
+                placeholder="https://drive.google.com/..."
+              />
+              <p className="text-xs text-muted-foreground">
+                Used for the "Find Your Photos" feature
+              </p>
+            </div>
+
+            <div className="border-t border-border pt-6">
+              <h3 className="font-semibold flex items-center gap-2 mb-4">
+                <Database size={18} className="text-primary" />
+                AI Face Recognition - MongoDB
+              </h3>
               <div className="space-y-2">
-                <Label>Google Drive Folder Link</Label>
-                <Input
-                  value={settings.google_drive_folder || ''}
-                  onChange={e => setSettings({ ...settings, google_drive_folder: e.target.value })}
-                  placeholder="https://drive.google.com/..."
-                />
+                <Label>MongoDB Connection URI</Label>
+                <div className="relative">
+                  <Input
+                    type={showMongoUri ? 'text' : 'password'}
+                    value={(settings as any).mongodb_uri || ''}
+                    onChange={e => setSettings({ ...settings, mongodb_uri: e.target.value } as any)}
+                    placeholder="mongodb+srv://user:pass@cluster.mongodb.net/dbname"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowMongoUri(!showMongoUri)}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                  >
+                    {showMongoUri ? <EyeOff size={16} /> : <Eye size={16} />}
+                  </button>
+                </div>
                 <p className="text-xs text-muted-foreground">
-                  Used for the "Find Your Photos" feature
+                  MongoDB connection string for storing face embeddings & event data
                 </p>
               </div>
+            </div>
+
+            <div className="border-t border-border pt-6">
+              <h3 className="font-semibold flex items-center gap-2 mb-4">
+                <Server size={18} className="text-primary" />
+                AI Face Recognition - Python API
+              </h3>
               <div className="space-y-2">
-                <Label>Webhook URL</Label>
+                <Label>Python API Server URL</Label>
                 <Input
-                  value={settings.webhook_url || ''}
-                  onChange={e => setSettings({ ...settings, webhook_url: e.target.value })}
-                  placeholder="https://..."
+                  value={(settings as any).python_api_url || ''}
+                  onChange={e => setSettings({ ...settings, python_api_url: e.target.value } as any)}
+                  placeholder="https://your-server.com/api"
                 />
                 <p className="text-xs text-muted-foreground">
-                  Receive notifications when new requests come in
+                  Self-hosted DeepFace API server endpoint for face embedding generation & matching
+                </p>
+              </div>
+            </div>
+
+            <div className="border-t border-border pt-6">
+              <h3 className="font-semibold flex items-center gap-2 mb-4">
+                <Key size={18} className="text-primary" />
+                Google Service Account
+              </h3>
+              <div className="space-y-2">
+                <Label>Service Account JSON Key</Label>
+                <div className="relative">
+                  <textarea
+                    className="flex min-h-[120px] w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50 font-mono"
+                    value={(settings as any).google_service_account_key || ''}
+                    onChange={e => setSettings({ ...settings, google_service_account_key: e.target.value } as any)}
+                    placeholder='{"type": "service_account", "project_id": "...", ...}'
+                  />
+                </div>
+                <p className="text-xs text-muted-foreground">
+                  Paste your Google Cloud Service Account JSON key for Drive API access
                 </p>
               </div>
             </div>
