@@ -20,14 +20,20 @@ async function getAccessToken(serviceAccountKey: string): Promise<string> {
     iat: now,
   };
 
-  // Import the private key
-  const pemContent = sa.private_key
-    .replace(/-----BEGIN PRIVATE KEY-----/g, "")
-    .replace(/-----END PRIVATE KEY-----/g, "")
-    .replace(/\\n/g, "")
-    .replace(/\n/g, "")
-    .replace(/\r/g, "")
-    .replace(/\s/g, "");
+  // Import the private key - clean all non-base64 characters
+  let pemContent = sa.private_key;
+  // Remove PEM headers/footers
+  pemContent = pemContent.replace(/-----BEGIN PRIVATE KEY-----/g, "");
+  pemContent = pemContent.replace(/-----END PRIVATE KEY-----/g, "");
+  // Remove all whitespace and escape sequences
+  pemContent = pemContent.replace(/\\n/g, "");
+  pemContent = pemContent.replace(/\n/g, "");
+  pemContent = pemContent.replace(/\r/g, "");
+  pemContent = pemContent.replace(/\s+/g, "");
+  
+  console.log("PEM content length:", pemContent.length);
+  console.log("PEM first 20 chars:", pemContent.substring(0, 20));
+  console.log("PEM last 20 chars:", pemContent.substring(pemContent.length - 20));
 
   const binaryKey = Uint8Array.from(atob(pemContent), (c) => c.charCodeAt(0));
 
