@@ -1,1 +1,7 @@
 project_id = "hdyxyljiuoippdxxkngx"
+
+[functions.match-face]
+verify_jwt = false
+
+[functions.process-drive-photos]
+verify_jwt = false
