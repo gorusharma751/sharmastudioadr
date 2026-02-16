@@ -22,9 +22,12 @@ async function getAccessToken(serviceAccountKey: string): Promise<string> {
 
   // Import the private key
   const pemContent = sa.private_key
-    .replace(/-----BEGIN PRIVATE KEY-----/, "")
-    .replace(/-----END PRIVATE KEY-----/, "")
-    .replace(/\n/g, "");
+    .replace(/-----BEGIN PRIVATE KEY-----/g, "")
+    .replace(/-----END PRIVATE KEY-----/g, "")
+    .replace(/\\n/g, "")
+    .replace(/\n/g, "")
+    .replace(/\r/g, "")
+    .replace(/\s/g, "");
 
   const binaryKey = Uint8Array.from(atob(pemContent), (c) => c.charCodeAt(0));
 
