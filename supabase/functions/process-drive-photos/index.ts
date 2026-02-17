@@ -133,12 +133,20 @@ Deno.serve(async (req) => {
     const query = `'${folderId}' in parents and mimeType contains 'image/' and trashed = false`;
     const listUrl = `https://www.googleapis.com/drive/v3/files?q=${encodeURIComponent(query)}&fields=files(id,name),nextPageToken&pageSize=${batch_size}${page_token ? `&pageToken=${page_token}` : ""}`;
 
-    const listRes = await fetch(listUrl, {
-      headers: { Authorization: `Bearer ${accessToken}` },
-    });
+    let listRes: Response | null = null;
+    for (let attempt = 0; attempt < 3; attempt++) {
+      listRes = await fetch(listUrl, {
+        headers: { Authorization: `Bearer ${accessToken}` },
+      });
+      if (listRes.ok) break;
+      if (attempt < 2) {
+        console.log(`Drive listing attempt ${attempt + 1} failed (${listRes.status}), retrying...`);
+        await new Promise(r => setTimeout(r, 1000 * (attempt + 1)));
+      }
+    }
 
-    if (!listRes.ok) {
-      const errText = await listRes.text();
+    if (!listRes || !listRes.ok) {
+      const errText = listRes ? await listRes.text() : "No response";
       return new Response(
         JSON.stringify({ error: "Failed to list Drive files", details: errText }),
         { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
