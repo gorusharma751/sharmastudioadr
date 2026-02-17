@@ -80,7 +80,7 @@ Deno.serve(async (req) => {
   }
 
   try {
-    const { studio_id, batch_size = 3, page_token = "" } = await req.json();
+    const { studio_id, batch_size = 1, page_token = "" } = await req.json();
 
     if (!studio_id) {
       return new Response(
@@ -162,63 +162,57 @@ Deno.serve(async (req) => {
     let failed = 0;
     const errors: string[] = [];
 
-    // Process ONE image at a time to minimize memory usage
-    for (const file of imageFiles) {
-      try {
-        // Instead of downloading image here, pass the download URL + token to Python API
-        // so Python downloads it directly, avoiding memory pressure in edge function
-        const downloadUrl = `https://www.googleapis.com/drive/v3/files/${file.id}?alt=media`;
-        const driveImageUrl = `https://lh3.googleusercontent.com/d/${file.id}`;
+    // Process only the FIRST image to stay within memory limits
+    const file = imageFiles[0];
+    try {
+      const downloadUrl = `https://www.googleapis.com/drive/v3/files/${file.id}?alt=media`;
+      const driveImageUrl = `https://lh3.googleusercontent.com/d/${file.id}`;
 
-        const embedRes = await fetch(`${python_api_url}/generate-embedding`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            image_url: downloadUrl,
-            access_token: accessToken,
-          }),
-        });
+      const embedRes = await fetch(`${python_api_url}/generate-embedding`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          image_url: downloadUrl,
+          access_token: accessToken,
+        }),
+      });
 
-        if (!embedRes.ok) {
-          const errText = await embedRes.text();
-          errors.push(`Embedding failed for ${file.name}: ${errText}`);
-          failed++;
-          continue;
-        }
-
+      if (!embedRes.ok) {
+        const errText = await embedRes.text();
+        errors.push(`Embedding failed for ${file.name}: ${errText}`);
+        failed++;
+      } else {
         const embedData = await embedRes.json();
 
         if (!embedData.embedding || embedData.embedding.length === 0) {
           console.log(`No face in ${file.name}, skipping`);
-          continue;
+        } else {
+          const storeRes = await fetch(`${python_api_url}/store-embedding`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              mongodb_uri,
+              studio_id,
+              file_id: file.id,
+              file_name: file.name,
+              image_url: driveImageUrl,
+              embedding: embedData.embedding,
+            }),
+          });
+
+          if (!storeRes.ok) {
+            const errText = await storeRes.text();
+            errors.push(`Store failed for ${file.name}: ${errText}`);
+            failed++;
+          } else {
+            processed++;
+            console.log(`Processed: ${file.name}`);
+          }
         }
-
-        const storeRes = await fetch(`${python_api_url}/store-embedding`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            mongodb_uri,
-            studio_id,
-            file_id: file.id,
-            file_name: file.name,
-            image_url: driveImageUrl,
-            embedding: embedData.embedding,
-          }),
-        });
-
-        if (!storeRes.ok) {
-          const errText = await storeRes.text();
-          errors.push(`Store failed for ${file.name}: ${errText}`);
-          failed++;
-          continue;
-        }
-
-        processed++;
-        console.log(`Processed: ${file.name}`);
-      } catch (e) {
-        errors.push(`Error: ${file.name}: ${String(e)}`);
-        failed++;
       }
+    } catch (e) {
+      errors.push(`Error: ${file.name}: ${String(e)}`);
+      failed++;
     }
 
     return new Response(
