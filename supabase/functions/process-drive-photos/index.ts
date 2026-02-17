@@ -95,7 +95,7 @@ Deno.serve(async (req) => {
   }
 
   try {
-    const { studio_id } = await req.json();
+    const { studio_id, batch_size = 10, offset = 0 } = await req.json();
 
     if (!studio_id) {
       return new Response(
@@ -173,23 +173,26 @@ Deno.serve(async (req) => {
       pageToken = listData.nextPageToken || "";
     } while (pageToken);
 
-    console.log(`Found ${imageFiles.length} images in Drive folder`);
+    const totalImages = imageFiles.length;
+    console.log(`Found ${totalImages} images in Drive folder, processing batch offset=${offset} size=${batch_size}`);
 
-    if (imageFiles.length === 0) {
+    if (totalImages === 0) {
       return new Response(
-        JSON.stringify({ success: true, message: "No images found in the Drive folder", processed: 0 }),
+        JSON.stringify({ success: true, message: "No images found in the Drive folder", processed: 0, total_images: 0, has_more: false }),
         { headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
     }
 
-    // Step 3: Process each image - download, generate embedding, store in MongoDB
+    // Slice to current batch
+    const batch = imageFiles.slice(offset, offset + batch_size);
+    const has_more = offset + batch_size < totalImages;
+
     let processed = 0;
     let failed = 0;
     const errors: string[] = [];
 
-    for (const file of imageFiles) {
+    for (const file of batch) {
       try {
-        // Download image from Drive
         const downloadUrl = `https://www.googleapis.com/drive/v3/files/${file.id}?alt=media`;
         const imgRes = await fetch(downloadUrl, {
           headers: { Authorization: `Bearer ${accessToken}` },
@@ -204,7 +207,6 @@ Deno.serve(async (req) => {
         const imgBuffer = await imgRes.arrayBuffer();
         const base64 = uint8ToBase64(new Uint8Array(imgBuffer));
 
-        // Generate embedding via Python API
         const embedRes = await fetch(`${python_api_url}/generate-embedding`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -220,13 +222,11 @@ Deno.serve(async (req) => {
 
         const embedData = await embedRes.json();
 
-        // If no face detected, skip but don't count as error
         if (!embedData.embedding || embedData.embedding.length === 0) {
           console.log(`No face detected in ${file.name}, skipping`);
           continue;
         }
 
-        // Store in MongoDB via Python API
         const driveImageUrl = `https://lh3.googleusercontent.com/d/${file.id}`;
         const storeRes = await fetch(`${python_api_url}/store-embedding`, {
           method: "POST",
@@ -249,7 +249,7 @@ Deno.serve(async (req) => {
         }
 
         processed++;
-        console.log(`Processed ${processed}/${imageFiles.length}: ${file.name}`);
+        console.log(`Processed ${offset + processed}/${totalImages}: ${file.name}`);
       } catch (e) {
         errors.push(`Error processing ${file.name}: ${String(e)}`);
         failed++;
@@ -259,10 +259,13 @@ Deno.serve(async (req) => {
     return new Response(
       JSON.stringify({
         success: true,
-        total_images: imageFiles.length,
+        total_images: totalImages,
         processed,
         failed,
-        errors: errors.slice(0, 10), // Limit error output
+        offset,
+        next_offset: offset + batch_size,
+        has_more,
+        errors: errors.slice(0, 10),
       }),
       { headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );

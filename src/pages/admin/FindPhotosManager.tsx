@@ -75,26 +75,46 @@ const FindPhotosManager: React.FC = () => {
     setProcessingDrive(true);
     setDriveProgress('Starting Google Drive photo processing...');
 
+    let offset = 0;
+    const batchSize = 10;
+    let totalProcessed = 0;
+    let totalFailed = 0;
+    let totalImages = 0;
+
     try {
-      const { data, error } = await supabase.functions.invoke('process-drive-photos', {
-        body: { studio_id: currentStudio.id },
-      });
+      while (true) {
+        setDriveProgress(`Processing batch starting at photo ${offset + 1}...`);
 
-      if (error) throw error;
-
-      if (data?.success) {
-        setDriveProgress(`✅ Done! Processed ${data.processed}/${data.total_images} images. ${data.failed > 0 ? `${data.failed} failed.` : ''}`);
-        toast({
-          title: '🎉 Processing Complete!',
-          description: `${data.processed} photos processed and embeddings stored in MongoDB.`,
+        const { data, error } = await supabase.functions.invoke('process-drive-photos', {
+          body: { studio_id: currentStudio.id, batch_size: batchSize, offset },
         });
-      } else {
-        setDriveProgress(`❌ Error: ${data?.error || 'Unknown error'}`);
-        toast({ title: 'Error', description: data?.error || 'Processing failed', variant: 'destructive' });
+
+        if (error) throw error;
+
+        if (!data?.success) {
+          setDriveProgress(`❌ Error: ${data?.error || 'Unknown error'}`);
+          toast({ title: 'Error', description: data?.error || 'Processing failed', variant: 'destructive' });
+          return;
+        }
+
+        totalImages = data.total_images;
+        totalProcessed += data.processed;
+        totalFailed += data.failed;
+
+        setDriveProgress(`Processed ${Math.min(offset + batchSize, totalImages)}/${totalImages} photos (${totalProcessed} faces found)...`);
+
+        if (!data.has_more) break;
+        offset = data.next_offset;
       }
+
+      setDriveProgress(`✅ Done! ${totalProcessed} faces found in ${totalImages} images. ${totalFailed > 0 ? `${totalFailed} failed.` : ''}`);
+      toast({
+        title: '🎉 Processing Complete!',
+        description: `${totalProcessed} photos processed from ${totalImages} images.`,
+      });
     } catch (error: any) {
       console.error('Drive processing error:', error);
-      setDriveProgress(`❌ Failed: ${error?.message || 'Could not process'}`);
+      setDriveProgress(`❌ Failed at photo ${offset + 1}: ${error?.message || 'Could not process'}`);
       toast({ title: 'Error', description: 'Failed to process Drive photos', variant: 'destructive' });
     } finally {
       setProcessingDrive(false);
