@@ -95,7 +95,7 @@ Deno.serve(async (req) => {
   }
 
   try {
-    const { studio_id, batch_size = 10, offset = 0 } = await req.json();
+    const { studio_id, batch_size = 5, page_token = "" } = await req.json();
 
     if (!studio_id) {
       return new Response(
@@ -144,54 +144,46 @@ Deno.serve(async (req) => {
       );
     }
 
-    // Step 2: List all image files in the Drive folder
+    // Step 2: List a small batch of image files using Drive API pagination
     const folderId = extractFolderId(google_drive_folder);
-    console.log(`Listing images in folder: ${folderId}`);
+    console.log(`Listing images in folder: ${folderId}, pageToken: ${page_token ? 'yes' : 'initial'}`);
 
-    let imageFiles: Array<{ id: string; name: string }> = [];
-    let pageToken = "";
-    
-    do {
-      const query = `'${folderId}' in parents and mimeType contains 'image/' and trashed = false`;
-      const listUrl = `https://www.googleapis.com/drive/v3/files?q=${encodeURIComponent(query)}&fields=files(id,name),nextPageToken&pageSize=100${pageToken ? `&pageToken=${pageToken}` : ""}`;
+    const query = `'${folderId}' in parents and mimeType contains 'image/' and trashed = false`;
+    const listUrl = `https://www.googleapis.com/drive/v3/files?q=${encodeURIComponent(query)}&fields=files(id,name),nextPageToken&pageSize=${batch_size}${page_token ? `&pageToken=${page_token}` : ""}`;
 
-      const listRes = await fetch(listUrl, {
-        headers: { Authorization: `Bearer ${accessToken}` },
-      });
+    const listRes = await fetch(listUrl, {
+      headers: { Authorization: `Bearer ${accessToken}` },
+    });
 
-      if (!listRes.ok) {
-        const errText = await listRes.text();
-        console.error("Drive API error:", errText);
-        return new Response(
-          JSON.stringify({ error: "Failed to list Drive files", details: errText }),
-          { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-        );
-      }
-
-      const listData = await listRes.json();
-      imageFiles = imageFiles.concat(listData.files || []);
-      pageToken = listData.nextPageToken || "";
-    } while (pageToken);
-
-    const totalImages = imageFiles.length;
-    console.log(`Found ${totalImages} images in Drive folder, processing batch offset=${offset} size=${batch_size}`);
-
-    if (totalImages === 0) {
+    if (!listRes.ok) {
+      const errText = await listRes.text();
+      console.error("Drive API error:", errText);
       return new Response(
-        JSON.stringify({ success: true, message: "No images found in the Drive folder", processed: 0, total_images: 0, has_more: false }),
+        JSON.stringify({ error: "Failed to list Drive files", details: errText }),
+        { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
+    }
+
+    const listData = await listRes.json();
+    const imageFiles: Array<{ id: string; name: string }> = listData.files || [];
+    const nextPageToken = listData.nextPageToken || "";
+
+    console.log(`Got ${imageFiles.length} images in this batch, has_more: ${!!nextPageToken}`);
+
+    if (imageFiles.length === 0) {
+      return new Response(
+        JSON.stringify({ success: true, message: "No more images to process", processed: 0, has_more: false }),
         { headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
     }
 
-    // Slice to current batch
-    const batch = imageFiles.slice(offset, offset + batch_size);
-    const has_more = offset + batch_size < totalImages;
+    const has_more = !!nextPageToken;
 
     let processed = 0;
     let failed = 0;
     const errors: string[] = [];
 
-    for (const file of batch) {
+    for (const file of imageFiles) {
       try {
         const downloadUrl = `https://www.googleapis.com/drive/v3/files/${file.id}?alt=media`;
         const imgRes = await fetch(downloadUrl, {
@@ -249,7 +241,7 @@ Deno.serve(async (req) => {
         }
 
         processed++;
-        console.log(`Processed ${offset + processed}/${totalImages}: ${file.name}`);
+        console.log(`Processed: ${file.name}`);
       } catch (e) {
         errors.push(`Error processing ${file.name}: ${String(e)}`);
         failed++;
@@ -259,12 +251,10 @@ Deno.serve(async (req) => {
     return new Response(
       JSON.stringify({
         success: true,
-        total_images: totalImages,
-        processed,
+        batch_processed: processed,
         failed,
-        offset,
-        next_offset: offset + batch_size,
         has_more,
+        next_page_token: nextPageToken,
         errors: errors.slice(0, 10),
       }),
       { headers: { ...corsHeaders, "Content-Type": "application/json" } }
