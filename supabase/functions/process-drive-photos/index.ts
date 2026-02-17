@@ -8,8 +8,7 @@ const corsHeaders = {
 
 async function getAccessToken(serviceAccountKey: string): Promise<string> {
   const sa = JSON.parse(serviceAccountKey);
-  
-  // Create JWT for Google OAuth2
+
   const header = { alg: "RS256", typ: "JWT" };
   const now = Math.floor(Date.now() / 1000);
   const claim = {
@@ -20,7 +19,6 @@ async function getAccessToken(serviceAccountKey: string): Promise<string> {
     iat: now,
   };
 
-  // Import the private key - clean all non-base64 characters
   let pemContent = sa.private_key;
   pemContent = pemContent.replace(/-----BEGIN PRIVATE KEY-----/g, "");
   pemContent = pemContent.replace(/-----END PRIVATE KEY-----/g, "");
@@ -55,7 +53,6 @@ async function getAccessToken(serviceAccountKey: string): Promise<string> {
 
   const jwt = `${signInput}.${sigB64}`;
 
-  // Exchange JWT for access token
   const tokenRes = await fetch("https://oauth2.googleapis.com/token", {
     method: "POST",
     headers: { "Content-Type": "application/x-www-form-urlencoded" },
@@ -77,25 +74,13 @@ function extractFolderId(folderUrl: string): string {
   return folderUrl;
 }
 
-function uint8ToBase64(bytes: Uint8Array): string {
-  let binary = "";
-  const chunk = 8192;
-  for (let i = 0; i < bytes.length; i += chunk) {
-    const slice = bytes.subarray(i, Math.min(i + chunk, bytes.length));
-    for (let j = 0; j < slice.length; j++) {
-      binary += String.fromCharCode(slice[j]);
-    }
-  }
-  return btoa(binary);
-}
-
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") {
     return new Response(null, { headers: corsHeaders });
   }
 
   try {
-    const { studio_id, batch_size = 5, page_token = "" } = await req.json();
+    const { studio_id, batch_size = 3, page_token = "" } = await req.json();
 
     if (!studio_id) {
       return new Response(
@@ -108,7 +93,6 @@ Deno.serve(async (req) => {
     const supabaseKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
     const supabase = createClient(supabaseUrl, supabaseKey);
 
-    // Get studio settings
     const { data: settings, error: settingsError } = await supabase
       .from("studio_settings")
       .select("python_api_url, mongodb_uri, google_drive_folder, google_service_account_key")
@@ -126,12 +110,11 @@ Deno.serve(async (req) => {
 
     if (!python_api_url || !mongodb_uri || !google_drive_folder || !google_service_account_key) {
       return new Response(
-        JSON.stringify({ error: "Missing required settings: Python API, MongoDB, Google Drive folder, or Service Account Key" }),
+        JSON.stringify({ error: "Missing required settings" }),
         { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
     }
 
-    // Step 1: Get access token using service account
     console.log("Getting Google Drive access token...");
     let accessToken: string;
     try {
@@ -144,7 +127,6 @@ Deno.serve(async (req) => {
       );
     }
 
-    // Step 2: List a small batch of image files using Drive API pagination
     const folderId = extractFolderId(google_drive_folder);
     console.log(`Listing images in folder: ${folderId}, pageToken: ${page_token ? 'yes' : 'initial'}`);
 
@@ -157,7 +139,6 @@ Deno.serve(async (req) => {
 
     if (!listRes.ok) {
       const errText = await listRes.text();
-      console.error("Drive API error:", errText);
       return new Response(
         JSON.stringify({ error: "Failed to list Drive files", details: errText }),
         { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
@@ -168,41 +149,34 @@ Deno.serve(async (req) => {
     const imageFiles: Array<{ id: string; name: string }> = listData.files || [];
     const nextPageToken = listData.nextPageToken || "";
 
-    console.log(`Got ${imageFiles.length} images in this batch, has_more: ${!!nextPageToken}`);
+    console.log(`Got ${imageFiles.length} images, has_more: ${!!nextPageToken}`);
 
     if (imageFiles.length === 0) {
       return new Response(
-        JSON.stringify({ success: true, message: "No more images to process", processed: 0, has_more: false }),
+        JSON.stringify({ success: true, batch_processed: 0, failed: 0, has_more: false }),
         { headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
     }
-
-    const has_more = !!nextPageToken;
 
     let processed = 0;
     let failed = 0;
     const errors: string[] = [];
 
+    // Process ONE image at a time to minimize memory usage
     for (const file of imageFiles) {
       try {
+        // Instead of downloading image here, pass the download URL + token to Python API
+        // so Python downloads it directly, avoiding memory pressure in edge function
         const downloadUrl = `https://www.googleapis.com/drive/v3/files/${file.id}?alt=media`;
-        const imgRes = await fetch(downloadUrl, {
-          headers: { Authorization: `Bearer ${accessToken}` },
-        });
-
-        if (!imgRes.ok) {
-          errors.push(`Failed to download ${file.name}`);
-          failed++;
-          continue;
-        }
-
-        const imgBuffer = await imgRes.arrayBuffer();
-        const base64 = uint8ToBase64(new Uint8Array(imgBuffer));
+        const driveImageUrl = `https://lh3.googleusercontent.com/d/${file.id}`;
 
         const embedRes = await fetch(`${python_api_url}/generate-embedding`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ image_base64: base64 }),
+          body: JSON.stringify({
+            image_url: downloadUrl,
+            access_token: accessToken,
+          }),
         });
 
         if (!embedRes.ok) {
@@ -215,11 +189,10 @@ Deno.serve(async (req) => {
         const embedData = await embedRes.json();
 
         if (!embedData.embedding || embedData.embedding.length === 0) {
-          console.log(`No face detected in ${file.name}, skipping`);
+          console.log(`No face in ${file.name}, skipping`);
           continue;
         }
 
-        const driveImageUrl = `https://lh3.googleusercontent.com/d/${file.id}`;
         const storeRes = await fetch(`${python_api_url}/store-embedding`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -243,7 +216,7 @@ Deno.serve(async (req) => {
         processed++;
         console.log(`Processed: ${file.name}`);
       } catch (e) {
-        errors.push(`Error processing ${file.name}: ${String(e)}`);
+        errors.push(`Error: ${file.name}: ${String(e)}`);
         failed++;
       }
     }
@@ -253,9 +226,9 @@ Deno.serve(async (req) => {
         success: true,
         batch_processed: processed,
         failed,
-        has_more,
+        has_more: !!nextPageToken,
         next_page_token: nextPageToken,
-        errors: errors.slice(0, 10),
+        errors: errors.slice(0, 5),
       }),
       { headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );
