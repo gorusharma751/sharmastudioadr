@@ -80,16 +80,31 @@ const FindPhotosManager: React.FC = () => {
     let totalFailed = 0;
     let batchCount = 0;
 
+    const delay = (ms: number) => new Promise(r => setTimeout(r, ms));
+
     try {
       while (true) {
         batchCount++;
-        setDriveProgress(`Processing batch ${batchCount}...`);
+        setDriveProgress(`Processing photo ${batchCount}...`);
 
-        const { data, error } = await supabase.functions.invoke('process-drive-photos', {
-          body: { studio_id: currentStudio.id, batch_size: 1, page_token: pageToken },
-        });
+        let retries = 0;
+        let data: any = null;
 
-        if (error) throw error;
+        while (retries < 3) {
+          const res = await supabase.functions.invoke('process-drive-photos', {
+            body: { studio_id: currentStudio.id, batch_size: 1, page_token: pageToken },
+          });
+
+          if (res.error) {
+            retries++;
+            if (retries >= 3) throw res.error;
+            await delay(2000 * retries);
+            continue;
+          }
+
+          data = res.data;
+          break;
+        }
 
         if (!data?.success) {
           setDriveProgress(`❌ Error: ${data?.error || 'Unknown error'}`);
@@ -100,10 +115,13 @@ const FindPhotosManager: React.FC = () => {
         totalProcessed += data.batch_processed || 0;
         totalFailed += data.failed || 0;
 
-        setDriveProgress(`Batch ${batchCount} done — ${totalProcessed} faces found so far...`);
+        setDriveProgress(`Photo ${batchCount} done — ${totalProcessed} faces found so far...`);
 
         if (!data.has_more) break;
         pageToken = data.next_page_token;
+
+        // Delay between calls to avoid Google Drive API rate limits
+        await delay(1500);
       }
 
       setDriveProgress(`✅ Done! ${totalProcessed} faces found across ${batchCount} batches. ${totalFailed > 0 ? `${totalFailed} failed.` : ''}`);
