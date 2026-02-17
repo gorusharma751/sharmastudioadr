@@ -176,25 +176,35 @@ Deno.serve(async (req) => {
       const downloadUrl = `https://www.googleapis.com/drive/v3/files/${file.id}?alt=media`;
       const driveImageUrl = `https://lh3.googleusercontent.com/d/${file.id}`;
 
+      const embedBody = JSON.stringify({
+          image_url: downloadUrl,
+          access_token: accessToken,
+        });
+      console.log(`Calling Python API for ${file.name}: ${python_api_url}/generate-embedding`);
+      
       const embedRes = await fetch(`${python_api_url}/generate-embedding`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          image_url: downloadUrl,
-          access_token: accessToken,
-        }),
+        body: embedBody,
       });
 
+      const embedRawText = await embedRes.text();
+      console.log(`Python API response for ${file.name}: status=${embedRes.status}, body=${embedRawText.substring(0, 500)}`);
+
       if (!embedRes.ok) {
-        const errText = await embedRes.text();
-        errors.push(`Embedding failed for ${file.name}: ${errText}`);
+        errors.push(`Embedding failed for ${file.name} (${embedRes.status}): ${embedRawText.substring(0, 200) || 'No response body'}`);
         failed++;
       } else {
-        const embedData = await embedRes.json();
+        let embedData: any;
+        try {
+          embedData = JSON.parse(embedRawText);
+        } catch {
+          errors.push(`Invalid JSON from Python API for ${file.name}: ${embedRawText.substring(0, 200)}`);
+          failed++;
+          embedData = null;
+        }
 
-        if (!embedData.embedding || embedData.embedding.length === 0) {
-          console.log(`No face in ${file.name}, skipping`);
-        } else {
+        if (embedData && embedData.embedding && embedData.embedding.length > 0) {
           const storeRes = await fetch(`${python_api_url}/store-embedding`, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
@@ -216,6 +226,8 @@ Deno.serve(async (req) => {
             processed++;
             console.log(`Processed: ${file.name}`);
           }
+        } else if (embedData) {
+          console.log(`No face in ${file.name}, skipping`);
         }
       }
     } catch (e) {
