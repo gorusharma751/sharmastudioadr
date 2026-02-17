@@ -86,7 +86,7 @@ const FindPhotosManager: React.FC = () => {
         setDriveProgress(`Processing batch ${batchCount}...`);
 
         const { data, error } = await supabase.functions.invoke('process-drive-photos', {
-          body: { studio_id: currentStudio.id, batch_size: 5, page_token: pageToken },
+          body: { studio_id: currentStudio.id, batch_size: 1, page_token: pageToken },
         });
 
         if (error) throw error;
