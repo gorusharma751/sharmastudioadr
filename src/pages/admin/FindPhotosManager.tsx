@@ -282,7 +282,7 @@ const FindPhotosManager: React.FC = () => {
                     {log.status === 'success' && <CheckCircle size={14} className="text-green-500 shrink-0" />}
                     {log.status === 'skipped' && <AlertCircle size={14} className="text-yellow-500 shrink-0" />}
                     {log.status === 'error' && <AlertCircle size={14} className="text-destructive shrink-0" />}
-                    <span className="truncate flex-1">{log.message}</span>
+                    <span className="truncate flex-1" title={log.message}>{log.message.length > 80 ? log.message.substring(0, 80) + '...' : log.message}</span>
                   </div>
                 ))}
               </div>
