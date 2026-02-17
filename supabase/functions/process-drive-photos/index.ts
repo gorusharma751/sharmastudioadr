@@ -22,18 +22,12 @@ async function getAccessToken(serviceAccountKey: string): Promise<string> {
 
   // Import the private key - clean all non-base64 characters
   let pemContent = sa.private_key;
-  // Remove PEM headers/footers
   pemContent = pemContent.replace(/-----BEGIN PRIVATE KEY-----/g, "");
   pemContent = pemContent.replace(/-----END PRIVATE KEY-----/g, "");
-  // Remove all whitespace and escape sequences
   pemContent = pemContent.replace(/\\n/g, "");
   pemContent = pemContent.replace(/\n/g, "");
   pemContent = pemContent.replace(/\r/g, "");
   pemContent = pemContent.replace(/\s+/g, "");
-  
-  console.log("PEM content length:", pemContent.length);
-  console.log("PEM first 20 chars:", pemContent.substring(0, 20));
-  console.log("PEM last 20 chars:", pemContent.substring(pemContent.length - 20));
 
   const binaryKey = Uint8Array.from(atob(pemContent), (c) => c.charCodeAt(0));
 
@@ -76,12 +70,23 @@ async function getAccessToken(serviceAccountKey: string): Promise<string> {
 }
 
 function extractFolderId(folderUrl: string): string {
-  // Extract folder ID from various Google Drive URL formats
   const match = folderUrl.match(/folders\/([a-zA-Z0-9_-]+)/);
   if (match) return match[1];
   const idMatch = folderUrl.match(/id=([a-zA-Z0-9_-]+)/);
   if (idMatch) return idMatch[1];
-  return folderUrl; // Assume it's already an ID
+  return folderUrl;
+}
+
+function uint8ToBase64(bytes: Uint8Array): string {
+  let binary = "";
+  const chunk = 8192;
+  for (let i = 0; i < bytes.length; i += chunk) {
+    const slice = bytes.subarray(i, Math.min(i + chunk, bytes.length));
+    for (let j = 0; j < slice.length; j++) {
+      binary += String.fromCharCode(slice[j]);
+    }
+  }
+  return btoa(binary);
 }
 
 Deno.serve(async (req) => {
@@ -197,7 +202,7 @@ Deno.serve(async (req) => {
         }
 
         const imgBuffer = await imgRes.arrayBuffer();
-        const base64 = btoa(String.fromCharCode(...new Uint8Array(imgBuffer)));
+        const base64 = uint8ToBase64(new Uint8Array(imgBuffer));
 
         // Generate embedding via Python API
         const embedRes = await fetch(`${python_api_url}/generate-embedding`, {
