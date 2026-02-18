@@ -1,13 +1,12 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
-import { Search, Phone, Clock, CheckCircle, RefreshCw, Play, ImageIcon, Square, Trash2, AlertCircle, ChevronDown, ChevronUp } from 'lucide-react';
+import { Search, Phone, Clock, CheckCircle, RefreshCw, Play, ImageIcon, Trash2, AlertCircle } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
 import { supabase } from '@/integrations/supabase/client';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
 import { useToast } from '@/hooks/use-toast';
-import { Progress } from '@/components/ui/progress';
 import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
   AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger,
@@ -21,13 +20,6 @@ interface PhotoSearchRequest {
   selfie_url: string | null;
   status: string;
   created_at: string;
-}
-
-interface ProcessingLog {
-  photo: number;
-  name: string;
-  status: 'success' | 'skipped' | 'error';
-  message: string;
 }
 
 const statusColors: Record<string, string> = {
@@ -44,10 +36,6 @@ const FindPhotosManager: React.FC = () => {
   const [processingDrive, setProcessingDrive] = useState(false);
   const [driveProgress, setDriveProgress] = useState('');
   const [searchQuery, setSearchQuery] = useState('');
-  const [processLogs, setProcessLogs] = useState<ProcessingLog[]>([]);
-  const [showLogs, setShowLogs] = useState(false);
-  const [progressPercent, setProgressPercent] = useState(0);
-  const cancelRef = useRef(false);
 
   useEffect(() => {
     if (currentStudio?.id) fetchRequests();
@@ -99,104 +87,36 @@ const FindPhotosManager: React.FC = () => {
     }
   };
 
-  const stopProcessing = () => {
-    cancelRef.current = true;
-    setDriveProgress('⏹ Stopping after current photo...');
-  };
-
   const processDrivePhotos = async () => {
     if (!currentStudio?.id) return;
-    cancelRef.current = false;
     setProcessingDrive(true);
-    setDriveProgress('Starting Google Drive photo processing...');
-    setProcessLogs([]);
-    setShowLogs(true);
-    setProgressPercent(0);
-
-    let pageToken = "";
-    let totalProcessed = 0;
-    let totalFailed = 0;
-    let totalSkipped = 0;
-    let batchCount = 0;
-
-    const delay = (ms: number) => new Promise(r => setTimeout(r, ms));
+    setDriveProgress('📸 Sending folder to Python API for processing...');
 
     try {
-      while (true) {
-        if (cancelRef.current) {
-          setDriveProgress(`⏹ Stopped! ${totalProcessed} faces found, ${totalSkipped} skipped, ${totalFailed} failed across ${batchCount} photos.`);
-          toast({ title: 'Processing Stopped', description: `Stopped after ${batchCount} photos.` });
-          return;
-        }
-
-        batchCount++;
-        setDriveProgress(`📸 Processing photo ${batchCount}...`);
-        setProgressPercent(Math.min(95, batchCount * 2));
-
-        let retries = 0;
-        let data: any = null;
-
-        while (retries < 3) {
-          const res = await supabase.functions.invoke('process-drive-photos', {
-            body: { studio_id: currentStudio.id, batch_size: 1, page_token: pageToken },
-          });
-
-          if (res.error) {
-            retries++;
-            if (retries >= 3) throw res.error;
-            await delay(2000 * retries);
-            continue;
-          }
-
-          data = res.data;
-          break;
-        }
-
-        if (!data?.success) {
-          const errMsg = data?.error || 'Unknown error';
-          setDriveProgress(`❌ Error: ${errMsg}`);
-          setProcessLogs(prev => [...prev, { photo: batchCount, name: '-', status: 'error', message: errMsg }]);
-          toast({ title: 'Error', description: errMsg, variant: 'destructive' });
-          return;
-        }
-
-        const processed = data.batch_processed || 0;
-        const failed = data.failed || 0;
-
-        totalProcessed += processed;
-        totalFailed += failed;
-
-        if (processed > 0) {
-          setProcessLogs(prev => [...prev, { photo: batchCount, name: `Photo #${batchCount}`, status: 'success', message: 'Face detected & stored' }]);
-        } else if (failed > 0) {
-          const errDetail = data.errors?.[0] || 'Processing failed';
-          setProcessLogs(prev => [...prev, { photo: batchCount, name: `Photo #${batchCount}`, status: 'error', message: errDetail }]);
-        } else {
-          totalSkipped++;
-          setProcessLogs(prev => [...prev, { photo: batchCount, name: `Photo #${batchCount}`, status: 'skipped', message: 'No face detected' }]);
-        }
-
-        setDriveProgress(`Photo ${batchCount} done — ${totalProcessed} faces, ${totalSkipped} skipped, ${totalFailed} failed`);
-
-        if (!data.has_more) break;
-        pageToken = data.next_page_token;
-
-        await delay(1500);
-      }
-
-      setProgressPercent(100);
-      setDriveProgress(`✅ Done! ${totalProcessed} faces found, ${totalSkipped} skipped, ${totalFailed} failed across ${batchCount} photos.`);
-      toast({
-        title: '🎉 Processing Complete!',
-        description: `${totalProcessed} faces found from ${batchCount} photos.`,
+      const res = await supabase.functions.invoke('process-drive-photos', {
+        body: { studio_id: currentStudio.id },
       });
+
+      if (res.error) throw res.error;
+
+      const data = res.data;
+      if (data?.success) {
+        setDriveProgress(`✅ Done! API Response received successfully.`);
+        toast({
+          title: '🎉 Processing Complete!',
+          description: `Python API processed the folder successfully.`,
+        });
+      } else {
+        const errMsg = data?.data?.error || data?.data?.detail || JSON.stringify(data?.data)?.substring(0, 200) || 'Unknown error';
+        setDriveProgress(`❌ Error: ${errMsg}`);
+        toast({ title: 'Error', description: errMsg, variant: 'destructive' });
+      }
     } catch (error: any) {
       console.error('Drive processing error:', error);
-      setDriveProgress(`❌ Failed at photo ${batchCount}: ${error?.message || 'Could not process'}`);
+      setDriveProgress(`❌ Failed: ${error?.message || 'Could not process'}`);
       toast({ title: 'Error', description: 'Failed to process Drive photos', variant: 'destructive' });
     } finally {
       setProcessingDrive(false);
-      cancelRef.current = false;
     }
   };
 
@@ -237,58 +157,19 @@ const FindPhotosManager: React.FC = () => {
               Process Event Photos from Google Drive
             </h3>
             <p className="text-sm text-muted-foreground mt-1">
-              Fetch all photos from your configured Google Drive folder, generate face embeddings, and store them for matching.
+              Send your Google Drive folder to the Python API for face embedding processing.
             </p>
             {driveProgress && (
               <p className="text-sm mt-2 font-medium">{driveProgress}</p>
             )}
           </div>
           <div className="flex gap-2 shrink-0">
-            {processingDrive ? (
-              <Button onClick={stopProcessing} variant="destructive">
-                <Square size={16} className="mr-2" />
-                Stop
-              </Button>
-            ) : (
-              <Button onClick={processDrivePhotos}>
-                <Play size={16} className="mr-2" />
-                Process Photos
-              </Button>
-            )}
+            <Button onClick={processDrivePhotos} disabled={processingDrive}>
+              <Play size={16} className="mr-2" />
+              {processingDrive ? 'Processing...' : 'Process Photos'}
+            </Button>
           </div>
         </div>
-        {processingDrive && <Progress value={progressPercent} className="mt-4" />}
-
-        {/* Processing Logs */}
-        {processLogs.length > 0 && (
-          <div className="mt-4">
-            <button
-              onClick={() => setShowLogs(!showLogs)}
-              className="flex items-center gap-2 text-sm font-medium text-muted-foreground hover:text-foreground transition-colors"
-            >
-              {showLogs ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
-              Processing Details ({processLogs.length} photos)
-              <span className="text-xs">
-                — ✅ {processLogs.filter(l => l.status === 'success').length}
-                {' '}⏭ {processLogs.filter(l => l.status === 'skipped').length}
-                {' '}❌ {processLogs.filter(l => l.status === 'error').length}
-              </span>
-            </button>
-            {showLogs && (
-              <div className="mt-2 max-h-60 overflow-y-auto border rounded-lg divide-y divide-border">
-                {processLogs.map((log, i) => (
-                  <div key={i} className="flex items-center gap-3 px-3 py-2 text-sm">
-                    <span className="text-muted-foreground w-8 text-right">#{log.photo}</span>
-                    {log.status === 'success' && <CheckCircle size={14} className="text-green-500 shrink-0" />}
-                    {log.status === 'skipped' && <AlertCircle size={14} className="text-yellow-500 shrink-0" />}
-                    {log.status === 'error' && <AlertCircle size={14} className="text-destructive shrink-0" />}
-                    <span className="truncate flex-1" title={log.message}>{log.message.length > 80 ? log.message.substring(0, 80) + '...' : log.message}</span>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-        )}
       </div>
 
       {/* Stats */}

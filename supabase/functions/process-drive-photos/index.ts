@@ -3,76 +3,8 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers":
-    "authorization, x-client-info, apikey, content-type",
+    "authorization, x-client-info, apikey, content-type, x-supabase-client-platform, x-supabase-client-platform-version, x-supabase-client-runtime, x-supabase-client-runtime-version",
 };
-
-async function getAccessToken(serviceAccountKey: string): Promise<string> {
-  const sa = JSON.parse(serviceAccountKey);
-
-  const header = { alg: "RS256", typ: "JWT" };
-  const now = Math.floor(Date.now() / 1000);
-  const claim = {
-    iss: sa.client_email,
-    scope: "https://www.googleapis.com/auth/drive.readonly",
-    aud: "https://oauth2.googleapis.com/token",
-    exp: now + 3600,
-    iat: now,
-  };
-
-  let pemContent = sa.private_key;
-  pemContent = pemContent.replace(/-----BEGIN PRIVATE KEY-----/g, "");
-  pemContent = pemContent.replace(/-----END PRIVATE KEY-----/g, "");
-  pemContent = pemContent.replace(/\\n/g, "");
-  pemContent = pemContent.replace(/\n/g, "");
-  pemContent = pemContent.replace(/\r/g, "");
-  pemContent = pemContent.replace(/\s+/g, "");
-
-  const binaryKey = Uint8Array.from(atob(pemContent), (c) => c.charCodeAt(0));
-
-  const cryptoKey = await crypto.subtle.importKey(
-    "pkcs8",
-    binaryKey,
-    { name: "RSASSA-PKCS1-v1_5", hash: "SHA-256" },
-    false,
-    ["sign"]
-  );
-
-  const encoder = new TextEncoder();
-  const headerB64 = btoa(JSON.stringify(header)).replace(/=/g, "").replace(/\+/g, "-").replace(/\//g, "_");
-  const claimB64 = btoa(JSON.stringify(claim)).replace(/=/g, "").replace(/\+/g, "-").replace(/\//g, "_");
-  const signInput = `${headerB64}.${claimB64}`;
-
-  const signature = await crypto.subtle.sign(
-    "RSASSA-PKCS1-v1_5",
-    cryptoKey,
-    encoder.encode(signInput)
-  );
-
-  const sigB64 = btoa(String.fromCharCode(...new Uint8Array(signature)))
-    .replace(/=/g, "").replace(/\+/g, "-").replace(/\//g, "_");
-
-  const jwt = `${signInput}.${sigB64}`;
-
-  const tokenRes = await fetch("https://oauth2.googleapis.com/token", {
-    method: "POST",
-    headers: { "Content-Type": "application/x-www-form-urlencoded" },
-    body: `grant_type=urn:ietf:params:oauth:grant-type:jwt-bearer&assertion=${jwt}`,
-  });
-
-  const tokenData = await tokenRes.json();
-  if (!tokenData.access_token) {
-    throw new Error(`Failed to get access token: ${JSON.stringify(tokenData)}`);
-  }
-  return tokenData.access_token;
-}
-
-function extractFolderId(folderUrl: string): string {
-  const match = folderUrl.match(/folders\/([a-zA-Z0-9_-]+)/);
-  if (match) return match[1];
-  const idMatch = folderUrl.match(/id=([a-zA-Z0-9_-]+)/);
-  if (idMatch) return idMatch[1];
-  return folderUrl;
-}
 
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") {
@@ -80,7 +12,7 @@ Deno.serve(async (req) => {
   }
 
   try {
-    const { studio_id, batch_size = 1, page_token = "" } = await req.json();
+    const { studio_id } = await req.json();
 
     if (!studio_id) {
       return new Response(
@@ -95,7 +27,7 @@ Deno.serve(async (req) => {
 
     const { data: settings, error: settingsError } = await supabase
       .from("studio_settings")
-      .select("python_api_url, mongodb_uri, google_drive_folder, google_service_account_key")
+      .select("python_api_url, google_drive_folder")
       .eq("studio_id", studio_id)
       .single();
 
@@ -106,145 +38,46 @@ Deno.serve(async (req) => {
       );
     }
 
-    const { python_api_url, mongodb_uri, google_drive_folder, google_service_account_key } = settings;
+    const { python_api_url, google_drive_folder } = settings;
 
-    if (!python_api_url || !mongodb_uri || !google_drive_folder || !google_service_account_key) {
+    if (!python_api_url || !google_drive_folder) {
       return new Response(
-        JSON.stringify({ error: "Missing required settings" }),
+        JSON.stringify({ error: "Missing required settings (Python API URL or Google Drive folder)" }),
         { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
     }
 
-    console.log("Getting Google Drive access token...");
-    let accessToken: string;
+    console.log(`Calling ${python_api_url}/process-drive-folder with folder_link and event_id=${studio_id}`);
+
+    const apiRes = await fetch(`${python_api_url}/process-drive-folder`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        folder_link: google_drive_folder,
+        event_id: studio_id,
+      }),
+    });
+
+    const responseText = await apiRes.text();
+    console.log(`Python API response: status=${apiRes.status}, body=${responseText.substring(0, 1000)}`);
+
+    let responseData: any;
     try {
-      accessToken = await getAccessToken(google_service_account_key);
-    } catch (e) {
-      console.error("Auth error:", e);
-      return new Response(
-        JSON.stringify({ error: "Failed to authenticate with Google Drive", details: String(e) }),
-        { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-      );
-    }
-
-    const folderId = extractFolderId(google_drive_folder);
-    console.log(`Listing images in folder: ${folderId}, pageToken: ${page_token ? 'yes' : 'initial'}`);
-
-    const query = `'${folderId}' in parents and mimeType contains 'image/' and trashed = false`;
-    const listUrl = `https://www.googleapis.com/drive/v3/files?q=${encodeURIComponent(query)}&fields=files(id,name),nextPageToken&pageSize=${batch_size}${page_token ? `&pageToken=${page_token}` : ""}`;
-
-    let listRes: Response | null = null;
-    for (let attempt = 0; attempt < 3; attempt++) {
-      listRes = await fetch(listUrl, {
-        headers: { Authorization: `Bearer ${accessToken}` },
-      });
-      if (listRes.ok) break;
-      if (attempt < 2) {
-        console.log(`Drive listing attempt ${attempt + 1} failed (${listRes.status}), retrying...`);
-        await new Promise(r => setTimeout(r, 1000 * (attempt + 1)));
-      }
-    }
-
-    if (!listRes || !listRes.ok) {
-      const errText = listRes ? await listRes.text() : "No response";
-      return new Response(
-        JSON.stringify({ error: "Failed to list Drive files", details: errText }),
-        { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-      );
-    }
-
-    const listData = await listRes.json();
-    const imageFiles: Array<{ id: string; name: string }> = listData.files || [];
-    const nextPageToken = listData.nextPageToken || "";
-
-    console.log(`Got ${imageFiles.length} images, has_more: ${!!nextPageToken}`);
-
-    if (imageFiles.length === 0) {
-      return new Response(
-        JSON.stringify({ success: true, batch_processed: 0, failed: 0, has_more: false }),
-        { headers: { ...corsHeaders, "Content-Type": "application/json" } }
-      );
-    }
-
-    let processed = 0;
-    let failed = 0;
-    const errors: string[] = [];
-
-    // Process only the FIRST image to stay within memory limits
-    const file = imageFiles[0];
-    try {
-      const downloadUrl = `https://www.googleapis.com/drive/v3/files/${file.id}?alt=media`;
-      const driveImageUrl = `https://lh3.googleusercontent.com/d/${file.id}`;
-
-      const embedBody = JSON.stringify({
-          image_url: downloadUrl,
-          access_token: accessToken,
-        });
-      console.log(`Calling Python API for ${file.name}: ${python_api_url}/generate-embedding`);
-      
-      const embedRes = await fetch(`${python_api_url}/generate-embedding`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: embedBody,
-      });
-
-      const embedRawText = await embedRes.text();
-      console.log(`Python API response for ${file.name}: status=${embedRes.status}, body=${embedRawText.substring(0, 500)}`);
-
-      if (!embedRes.ok) {
-        errors.push(`Embedding failed for ${file.name} (${embedRes.status}): ${embedRawText.substring(0, 200) || 'No response body'}`);
-        failed++;
-      } else {
-        let embedData: any;
-        try {
-          embedData = JSON.parse(embedRawText);
-        } catch {
-          errors.push(`Invalid JSON from Python API for ${file.name}: ${embedRawText.substring(0, 200)}`);
-          failed++;
-          embedData = null;
-        }
-
-        if (embedData && embedData.embedding && embedData.embedding.length > 0) {
-          const storeRes = await fetch(`${python_api_url}/store-embedding`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              mongodb_uri,
-              studio_id,
-              file_id: file.id,
-              file_name: file.name,
-              image_url: driveImageUrl,
-              embedding: embedData.embedding,
-            }),
-          });
-
-          if (!storeRes.ok) {
-            const errText = await storeRes.text();
-            errors.push(`Store failed for ${file.name}: ${errText}`);
-            failed++;
-          } else {
-            processed++;
-            console.log(`Processed: ${file.name}`);
-          }
-        } else if (embedData) {
-          console.log(`No face in ${file.name}, skipping`);
-        }
-      }
-    } catch (e) {
-      errors.push(`Error: ${file.name}: ${String(e)}`);
-      failed++;
+      responseData = JSON.parse(responseText);
+    } catch {
+      responseData = { raw_response: responseText.substring(0, 500) };
     }
 
     return new Response(
       JSON.stringify({
-        success: true,
-        batch_processed: processed,
-        failed,
-        has_more: !!nextPageToken,
-        next_page_token: nextPageToken,
-        errors: errors.slice(0, 5),
+        success: apiRes.ok,
+        status: apiRes.status,
+        data: responseData,
       }),
-      { headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      {
+        status: apiRes.ok ? 200 : 500,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      }
     );
   } catch (e) {
     console.error("Unexpected error:", e);
