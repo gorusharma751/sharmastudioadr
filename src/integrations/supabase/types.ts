@@ -168,6 +168,53 @@ export type Database = {
           },
         ]
       }
+      events: {
+        Row: {
+          api_event_id: string
+          created_at: string
+          drive_folder_link: string | null
+          event_date: string | null
+          id: string
+          is_active: boolean | null
+          name: string
+          studio_id: string
+          updated_at: string
+          venue: string | null
+        }
+        Insert: {
+          api_event_id: string
+          created_at?: string
+          drive_folder_link?: string | null
+          event_date?: string | null
+          id?: string
+          is_active?: boolean | null
+          name: string
+          studio_id: string
+          updated_at?: string
+          venue?: string | null
+        }
+        Update: {
+          api_event_id?: string
+          created_at?: string
+          drive_folder_link?: string | null
+          event_date?: string | null
+          id?: string
+          is_active?: boolean | null
+          name?: string
+          studio_id?: string
+          updated_at?: string
+          venue?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "events_studio_id_fkey"
+            columns: ["studio_id"]
+            isOneToOne: false
+            referencedRelation: "studios"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       page_sections: {
         Row: {
           content: Json | null

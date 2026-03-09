@@ -12,11 +12,11 @@ Deno.serve(async (req) => {
   }
 
   try {
-    const { studio_id } = await req.json();
+    const { studio_id, folder_link, event_id } = await req.json();
 
-    if (!studio_id) {
+    if (!studio_id || !folder_link || !event_id) {
       return new Response(
-        JSON.stringify({ error: "studio_id is required" }),
+        JSON.stringify({ error: "studio_id, folder_link, and event_id are required" }),
         { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
     }
@@ -27,34 +27,26 @@ Deno.serve(async (req) => {
 
     const { data: settings, error: settingsError } = await supabase
       .from("studio_settings")
-      .select("python_api_url, google_drive_folder")
+      .select("python_api_url")
       .eq("studio_id", studio_id)
       .single();
 
-    if (settingsError || !settings) {
+    if (settingsError || !settings?.python_api_url) {
       return new Response(
-        JSON.stringify({ error: "Studio settings not found" }),
-        { status: 404, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-      );
-    }
-
-    const { python_api_url, google_drive_folder } = settings;
-
-    if (!python_api_url || !google_drive_folder) {
-      return new Response(
-        JSON.stringify({ error: "Missing required settings (Python API URL or Google Drive folder)" }),
+        JSON.stringify({ error: "Python API URL not configured in studio settings" }),
         { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
     }
 
-    console.log(`Calling ${python_api_url}/process-drive-folder with folder_link and event_id=${studio_id}`);
+    const apiUrl = settings.python_api_url;
+    console.log(`Calling ${apiUrl}/process-drive-folder with folder_link and event_id=${event_id}`);
 
-    const apiRes = await fetch(`${python_api_url}/process-drive-folder`, {
+    const apiRes = await fetch(`${apiUrl}/process-drive-folder`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        folder_link: google_drive_folder,
-        event_id: studio_id,
+        folder_link: folder_link,
+        event_id: event_id,
       }),
     });
 
@@ -69,15 +61,8 @@ Deno.serve(async (req) => {
     }
 
     return new Response(
-      JSON.stringify({
-        success: apiRes.ok,
-        status: apiRes.status,
-        data: responseData,
-      }),
-      {
-        status: apiRes.ok ? 200 : 500,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      }
+      JSON.stringify({ success: apiRes.ok, status: apiRes.status, data: responseData }),
+      { status: apiRes.ok ? 200 : 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );
   } catch (e) {
     console.error("Unexpected error:", e);
