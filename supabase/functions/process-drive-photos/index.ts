@@ -1,4 +1,4 @@
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+const PYTHON_API_URL = "https://deepface-api-43ft.onrender.com";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -12,42 +12,21 @@ Deno.serve(async (req) => {
   }
 
   try {
-    const { studio_id, folder_link, event_id } = await req.json();
+    const { folder_link, event_id } = await req.json();
 
-    if (!studio_id || !folder_link || !event_id) {
+    if (!folder_link || !event_id) {
       return new Response(
-        JSON.stringify({ error: "studio_id, folder_link, and event_id are required" }),
+        JSON.stringify({ error: "folder_link and event_id are required" }),
         { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
     }
 
-    const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
-    const supabaseKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
-    const supabase = createClient(supabaseUrl, supabaseKey);
+    console.log(`Calling ${PYTHON_API_URL}/process-drive-folder with folder_link and event_id=${event_id}`);
 
-    const { data: settings, error: settingsError } = await supabase
-      .from("studio_settings")
-      .select("python_api_url")
-      .eq("studio_id", studio_id)
-      .single();
-
-    if (settingsError || !settings?.python_api_url) {
-      return new Response(
-        JSON.stringify({ error: "Python API URL not configured in studio settings" }),
-        { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-      );
-    }
-
-    const apiUrl = settings.python_api_url;
-    console.log(`Calling ${apiUrl}/process-drive-folder with folder_link and event_id=${event_id}`);
-
-    const apiRes = await fetch(`${apiUrl}/process-drive-folder`, {
+    const apiRes = await fetch(`${PYTHON_API_URL}/process-drive-folder`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        folder_link: folder_link,
-        event_id: event_id,
-      }),
+      body: JSON.stringify({ folder_link, event_id }),
     });
 
     const responseText = await apiRes.text();
