@@ -13,20 +13,31 @@ Deno.serve(async (req) => {
 
   try {
     console.log("Received request for /match");
+    console.log("Content-Type:", req.headers.get("content-type"));
 
-    // Forward the FormData directly to Python API
-    const formData = await req.formData();
+    // Parse JSON body from client (base64-encoded file)
+    const body = await req.json();
+    const { name, mobile, event_id, threshold, file_base64, file_name, file_type } = body;
 
-    console.log("FormData fields received:");
-    for (const [key, value] of formData.entries()) {
-      if (value instanceof File) {
-        console.log(`  ${key}: File(name=${value.name}, size=${value.size}, type=${value.type})`);
-      } else {
-        console.log(`  ${key}: ${value}`);
-      }
+    console.log("Parsed fields:", { name, mobile, event_id, threshold, file_name, file_type, file_base64_length: file_base64?.length });
+
+    // Convert base64 back to binary
+    const binaryString = atob(file_base64);
+    const bytes = new Uint8Array(binaryString.length);
+    for (let i = 0; i < binaryString.length; i++) {
+      bytes[i] = binaryString.charCodeAt(i);
     }
+    const fileBlob = new Blob([bytes], { type: file_type || "image/jpeg" });
 
-    console.log(`Forwarding request to Python API: ${PYTHON_API_URL}/match`);
+    // Build FormData for Python API
+    const formData = new FormData();
+    formData.append("name", name);
+    formData.append("mobile", mobile);
+    formData.append("event_id", event_id);
+    formData.append("threshold", threshold || "0.55");
+    formData.append("file", fileBlob, file_name || "selfie.jpg");
+
+    console.log(`Forwarding FormData to Python API: ${PYTHON_API_URL}/match`);
 
     const response = await fetch(`${PYTHON_API_URL}/match`, {
       method: "POST",

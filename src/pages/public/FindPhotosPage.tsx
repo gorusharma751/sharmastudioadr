@@ -74,12 +74,30 @@ const FindPhotosPage: React.FC = () => {
     setStep('processing');
 
     try {
-      const formData = new FormData();
-      formData.append('name', name.trim());
-      formData.append('mobile', phone.trim());
-      formData.append('event_id', selectedEvent.api_event_id);
-      formData.append('threshold', '0.55');
-      formData.append('file', selfieFile, selfieFile.name);
+      // Convert file to base64 for JSON transport through Supabase proxy
+      const fileBase64 = await new Promise<string>((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => {
+          const result = reader.result as string;
+          // Remove data URL prefix (e.g., "data:image/jpeg;base64,")
+          const base64 = result.split(',')[1];
+          resolve(base64);
+        };
+        reader.onerror = reject;
+        reader.readAsDataURL(selfieFile);
+      });
+
+      const payload = {
+        name: name.trim(),
+        mobile: phone.trim(),
+        event_id: selectedEvent.api_event_id,
+        threshold: '0.55',
+        file_base64: fileBase64,
+        file_name: selfieFile.name,
+        file_type: selfieFile.type,
+      };
+
+      console.log('Sending match request with payload keys:', Object.keys(payload));
 
       const projectId = import.meta.env.VITE_SUPABASE_PROJECT_ID || 'hdyxyljiuoippdxxkngx';
       const anonKey = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY;
@@ -90,8 +108,9 @@ const FindPhotosPage: React.FC = () => {
           method: 'POST',
           headers: {
             'apikey': anonKey,
+            'Content-Type': 'application/json',
           },
-          body: formData,
+          body: JSON.stringify(payload),
         }
       );
 
