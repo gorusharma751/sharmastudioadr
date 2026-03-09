@@ -1,9 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Camera, User, Phone, Upload, Search, CheckCircle, Sparkles, ImageIcon, Download, Calendar, MapPin, ChevronDown } from 'lucide-react';
-import { useForm } from 'react-hook-form';
-import { zodResolver } from '@hookform/resolvers/zod';
-import * as z from 'zod';
 import GlassNavbar from '@/components/GlassNavbar';
 import Footer from '@/components/Footer';
 import { SectionContainer, SectionHeader, GlowButton } from '@/components/ui/shared';
@@ -14,13 +11,6 @@ import { supabase } from '@/integrations/supabase/client';
 import { useToast } from '@/hooks/use-toast';
 import { Progress } from '@/components/ui/progress';
 
-const searchSchema = z.object({
-  name: z.string().min(2, 'Name is required'),
-  phone: z.string().min(10, 'Valid phone number is required'),
-});
-
-type SearchFormData = z.infer<typeof searchSchema>;
-
 interface EventItem {
   id: string;
   name: string;
@@ -30,9 +20,10 @@ interface EventItem {
 }
 
 interface MatchedPhoto {
-  image_url?: string;
   url?: string;
-  [key: string]: any;
+  image_url?: string;
+  filename?: string;
+  similarity?: number;
 }
 
 const FindPhotosPage: React.FC = () => {
@@ -40,17 +31,16 @@ const FindPhotosPage: React.FC = () => {
   const { toast } = useToast();
   const [events, setEvents] = useState<EventItem[]>([]);
   const [selectedEvent, setSelectedEvent] = useState<EventItem | null>(null);
-  const [isSubmitting, setIsSubmitting] = useState(false);
   const [step, setStep] = useState<'event' | 'form' | 'processing' | 'results'>('event');
-  const [selfiePreview, setSelfiePreview] = useState<string | null>(null);
-  const [selfieBase64, setSelfieBase64] = useState<string | null>(null);
-  const [matchedPhotos, setMatchedPhotos] = useState<MatchedPhoto[]>([]);
-  const [processingStatus, setProcessingStatus] = useState('');
-  const [selectedPhoto, setSelectedPhoto] = useState<string | null>(null);
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
-  const { register, handleSubmit, formState: { errors }, reset } = useForm<SearchFormData>({
-    resolver: zodResolver(searchSchema),
-  });
+  const [name, setName] = useState('');
+  const [phone, setPhone] = useState('');
+  const [selfieFile, setSelfieFile] = useState<File | null>(null);
+  const [selfiePreview, setSelfiePreview] = useState<string | null>(null);
+
+  const [matchedPhotos, setMatchedPhotos] = useState<MatchedPhoto[]>([]);
+  const [selectedPhoto, setSelectedPhoto] = useState<string | null>(null);
 
   useEffect(() => {
     if (studio?.id) fetchEvents();
@@ -62,55 +52,56 @@ const FindPhotosPage: React.FC = () => {
       .select('id, name, venue, event_date, api_event_id')
       .eq('is_active', true)
       .order('event_date', { ascending: false });
-    setEvents((data as any[]) || []);
-  };
-
-  const handleEventSelect = (event: EventItem) => {
-    setSelectedEvent(event);
-    setStep('form');
+    setEvents((data as EventItem[]) || []);
   };
 
   const handleSelfieChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
-      const reader = new FileReader();
-      reader.onloadend = () => {
-        const result = reader.result as string;
-        setSelfiePreview(result);
-        setSelfieBase64(result.split(',')[1]);
-      };
-      reader.readAsDataURL(file);
+      setSelfieFile(file);
+      setSelfiePreview(URL.createObjectURL(file));
     }
   };
 
-  const onSubmit = async (data: SearchFormData) => {
-    if (!studio?.id || !selectedEvent) return;
-    if (!selfieBase64) {
-      toast({ title: 'Error', description: 'Please upload your selfie', variant: 'destructive' });
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!selectedEvent || !selfieFile || !name.trim() || !phone.trim()) {
+      toast({ title: 'Error', description: 'Please fill all fields and upload a selfie', variant: 'destructive' });
       return;
     }
 
     setIsSubmitting(true);
     setStep('processing');
-    setProcessingStatus('Matching your face...');
 
     try {
-      const { data: result, error } = await supabase.functions.invoke('match-face', {
-        body: {
-          studio_id: studio.id,
-          event_id: selectedEvent.api_event_id,
-          name: data.name,
-          phone: data.phone,
-          selfie_base64: selfieBase64,
-        },
-      });
+      const formData = new FormData();
+      formData.append('name', name.trim());
+      formData.append('mobile', phone.trim());
+      formData.append('event_id', selectedEvent.api_event_id);
+      formData.append('threshold', '0.55');
+      formData.append('file', selfieFile, selfieFile.name);
 
-      if (error) throw error;
+      const projectId = import.meta.env.VITE_SUPABASE_PROJECT_ID || 'hdyxyljiuoippdxxkngx';
+      const anonKey = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY;
 
-      const photos = result?.matched_photos || [];
-      // Normalize: could be array of strings or objects
-      const normalized: MatchedPhoto[] = photos.map((p: any) =>
-        typeof p === 'string' ? { image_url: p } : p
+      const response = await fetch(
+        `https://${projectId}.supabase.co/functions/v1/match-face`,
+        {
+          method: 'POST',
+          headers: {
+            'apikey': anonKey,
+          },
+          body: formData,
+        }
+      );
+
+      const result = await response.json();
+      console.log('Match-face response:', result);
+
+      const photos: MatchedPhoto[] = result?.matched_photos || result?.photos || [];
+      // Normalize
+      const normalized = photos.map((p: any) =>
+        typeof p === 'string' ? { url: p } : p
       );
 
       setMatchedPhotos(normalized);
@@ -122,6 +113,7 @@ const FindPhotosPage: React.FC = () => {
         toast({ title: 'No matches', description: 'Try again with a clearer selfie.' });
       }
     } catch (error: any) {
+      console.error('Match error:', error);
       toast({ title: 'Error', description: error?.message || 'Failed to process', variant: 'destructive' });
       setStep('form');
     } finally {
@@ -129,18 +121,17 @@ const FindPhotosPage: React.FC = () => {
     }
   };
 
-  const getPhotoUrl = (photo: MatchedPhoto): string => {
-    return photo.image_url || photo.url || '';
-  };
+  const getPhotoUrl = (photo: MatchedPhoto): string => photo.url || photo.image_url || '';
 
   const handleReset = () => {
     setStep('event');
     setSelectedEvent(null);
     setMatchedPhotos([]);
     setSelfiePreview(null);
-    setSelfieBase64(null);
+    setSelfieFile(null);
     setSelectedPhoto(null);
-    reset();
+    setName('');
+    setPhone('');
   };
 
   return (
@@ -174,7 +165,7 @@ const FindPhotosPage: React.FC = () => {
                           key={event.id}
                           whileHover={{ scale: 1.02 }}
                           whileTap={{ scale: 0.98 }}
-                          onClick={() => handleEventSelect(event)}
+                          onClick={() => { setSelectedEvent(event); setStep('form'); }}
                           className="w-full text-left p-4 rounded-xl border border-border hover:border-primary/50 hover:bg-primary/5 transition-all"
                         >
                           <div className="flex items-center justify-between">
@@ -199,7 +190,6 @@ const FindPhotosPage: React.FC = () => {
             {step === 'form' && (
               <motion.div key="form" initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }} className="max-w-2xl mx-auto">
                 <div className="glass-card p-8 md:p-12">
-                  {/* Selected event badge */}
                   <div className="mb-6 p-3 rounded-lg bg-primary/10 flex items-center justify-between">
                     <div>
                       <p className="text-sm text-muted-foreground">Selected Event</p>
@@ -226,28 +216,25 @@ const FindPhotosPage: React.FC = () => {
                     </div>
                   </div>
 
-                  <form onSubmit={handleSubmit(onSubmit)} className="space-y-6">
+                  <form onSubmit={handleSubmit} className="space-y-6">
                     <div className="grid md:grid-cols-2 gap-6">
                       <div className="space-y-2">
                         <Label htmlFor="name" className="flex items-center gap-2"><User size={16} className="text-primary" /> Your Name *</Label>
-                        <Input id="name" {...register('name')} placeholder="Enter your full name" className="bg-background/50" />
-                        {errors.name && <p className="text-sm text-destructive">{errors.name.message}</p>}
+                        <Input id="name" value={name} onChange={e => setName(e.target.value)} placeholder="Enter your full name" className="bg-background/50" required />
                       </div>
                       <div className="space-y-2">
                         <Label htmlFor="phone" className="flex items-center gap-2"><Phone size={16} className="text-primary" /> Phone Number *</Label>
-                        <Input id="phone" {...register('phone')} placeholder="+91 98765 43210" className="bg-background/50" />
-                        {errors.phone && <p className="text-sm text-destructive">{errors.phone.message}</p>}
+                        <Input id="phone" value={phone} onChange={e => setPhone(e.target.value)} placeholder="+91 98765 43210" className="bg-background/50" required />
                       </div>
                     </div>
 
-                    {/* Selfie Upload */}
                     <div className="space-y-2">
                       <Label className="flex items-center gap-2"><Camera size={16} className="text-primary" /> Upload Your Selfie *</Label>
                       <div className="border-2 border-dashed border-border rounded-xl p-8 text-center hover:border-primary/50 transition-colors">
                         {selfiePreview ? (
                           <motion.div initial={{ opacity: 0, scale: 0.9 }} animate={{ opacity: 1, scale: 1 }} className="relative inline-block">
                             <img src={selfiePreview} alt="Selfie preview" className="w-40 h-40 object-cover rounded-xl mx-auto" />
-                            <button type="button" onClick={() => { setSelfiePreview(null); setSelfieBase64(null); }} className="absolute -top-2 -right-2 w-6 h-6 bg-destructive text-destructive-foreground rounded-full text-xs">×</button>
+                            <button type="button" onClick={() => { setSelfiePreview(null); setSelfieFile(null); }} className="absolute -top-2 -right-2 w-6 h-6 bg-destructive text-destructive-foreground rounded-full text-xs">×</button>
                           </motion.div>
                         ) : (
                           <label className="cursor-pointer block">
@@ -276,8 +263,8 @@ const FindPhotosPage: React.FC = () => {
             {step === 'processing' && (
               <motion.div key="processing" initial={{ opacity: 0, scale: 0.9 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0 }} className="max-w-xl mx-auto text-center py-16">
                 <motion.div animate={{ rotate: 360 }} transition={{ repeat: Infinity, duration: 2, ease: 'linear' }} className="w-20 h-20 mx-auto mb-8 rounded-full border-4 border-primary border-t-transparent" />
-                <h2 className="font-display text-2xl font-bold mb-4">Processing Your Photo...</h2>
-                <p className="text-muted-foreground mb-6">{processingStatus}</p>
+                <h2 className="font-display text-2xl font-bold mb-4">Matching Your Face...</h2>
+                <p className="text-muted-foreground mb-6">This may take a moment, especially if the server is waking up.</p>
                 <Progress value={65} className="max-w-xs mx-auto" />
               </motion.div>
             )}
@@ -307,13 +294,18 @@ const FindPhotosPage: React.FC = () => {
                             className="relative group cursor-pointer rounded-xl overflow-hidden aspect-square"
                             onClick={() => setSelectedPhoto(url)}
                           >
-                            <img src={url} alt={`Photo ${index + 1}`} className="w-full h-full object-cover transition-transform group-hover:scale-110" loading="lazy" />
+                            <img src={url} alt={photo.filename || `Photo ${index + 1}`} className="w-full h-full object-cover transition-transform group-hover:scale-110" loading="lazy" />
                             <div className="absolute inset-0 bg-black/0 group-hover:bg-black/30 transition-colors flex items-center justify-center">
                               <ImageIcon className="text-white opacity-0 group-hover:opacity-100 transition-opacity" size={32} />
                             </div>
+                            {photo.similarity && (
+                              <div className="absolute top-2 left-2 bg-black/60 text-white text-xs px-2 py-1 rounded">
+                                {Math.round(photo.similarity * 100)}% match
+                              </div>
+                            )}
                             <a
                               href={url}
-                              download
+                              download={photo.filename || `photo-${index + 1}.jpg`}
                               onClick={(e) => e.stopPropagation()}
                               className="absolute bottom-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity bg-black/60 text-white p-2 rounded-lg"
                             >
