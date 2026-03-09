@@ -117,8 +117,20 @@ const FindPhotosPage: React.FC = () => {
       const result = await response.json();
       console.log('Match-face response:', result);
 
+      if (result?.error) {
+        const isServerWaking = response.status === 502 || response.status === 503;
+        toast({ 
+          title: isServerWaking ? '⏳ Server Starting Up' : 'Error', 
+          description: isServerWaking 
+            ? 'The AI server is waking up. Please wait 30-60 seconds and try again.' 
+            : (result.error || 'Failed to process'), 
+          variant: 'destructive' 
+        });
+        setStep('form');
+        return;
+      }
+
       const photos: MatchedPhoto[] = result?.matched_photos || result?.photos || [];
-      // Normalize
       const normalized = photos.map((p: any) =>
         typeof p === 'string' ? { url: p } : p
       );
@@ -133,7 +145,7 @@ const FindPhotosPage: React.FC = () => {
       }
     } catch (error: any) {
       console.error('Match error:', error);
-      toast({ title: 'Error', description: error?.message || 'Failed to process', variant: 'destructive' });
+      toast({ title: 'Error', description: error?.message || 'Failed to process. The server may be starting up - try again in 30-60 seconds.', variant: 'destructive' });
       setStep('form');
     } finally {
       setIsSubmitting(false);
