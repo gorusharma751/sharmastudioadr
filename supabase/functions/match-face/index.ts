@@ -1,4 +1,4 @@
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+const PYTHON_API_URL = "https://deepface-api-43ft.onrender.com";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -12,86 +12,43 @@ Deno.serve(async (req) => {
   }
 
   try {
-    const { studio_id, event_id, name, phone, selfie_base64 } = await req.json();
+    console.log("Received request for /match");
 
-    if (!studio_id || !event_id || !name || !phone || !selfie_base64) {
-      return new Response(
-        JSON.stringify({ error: "Missing required fields: studio_id, event_id, name, phone, selfie_base64" }),
-        { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-      );
+    // Forward the FormData directly to Python API
+    const formData = await req.formData();
+
+    console.log("FormData fields received:");
+    for (const [key, value] of formData.entries()) {
+      if (value instanceof File) {
+        console.log(`  ${key}: File(name=${value.name}, size=${value.size}, type=${value.type})`);
+      } else {
+        console.log(`  ${key}: ${value}`);
+      }
     }
 
-    const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
-    const supabaseKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
-    const supabase = createClient(supabaseUrl, supabaseKey);
+    console.log(`Forwarding request to Python API: ${PYTHON_API_URL}/match`);
 
-    const { data: settings, error: settingsError } = await supabase
-      .from("studio_settings")
-      .select("python_api_url")
-      .eq("studio_id", studio_id)
-      .single();
-
-    if (settingsError || !settings?.python_api_url) {
-      return new Response(
-        JSON.stringify({ error: "Python API URL not configured" }),
-        { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-      );
-    }
-
-    const apiUrl = settings.python_api_url;
-
-    // Convert base64 to a file blob for multipart/form-data
-    const binaryStr = atob(selfie_base64);
-    const bytes = new Uint8Array(binaryStr.length);
-    for (let i = 0; i < binaryStr.length; i++) {
-      bytes[i] = binaryStr.charCodeAt(i);
-    }
-    const blob = new Blob([bytes], { type: "image/jpeg" });
-
-    const formData = new FormData();
-    formData.append("event_id", event_id);
-    formData.append("name", name);
-    formData.append("mobile", phone);
-    formData.append("file", blob, "selfie.jpg");
-    formData.append("threshold", "0.55");
-
-    console.log(`Calling ${apiUrl}/match with event_id=${event_id}, name=${name}`);
-
-    const matchRes = await fetch(`${apiUrl}/match`, {
+    const response = await fetch(`${PYTHON_API_URL}/match`, {
       method: "POST",
       body: formData,
     });
 
-    const responseText = await matchRes.text();
-    console.log(`Match API response: status=${matchRes.status}, body=${responseText.substring(0, 1000)}`);
+    console.log("Python API response status:", response.status);
 
-    let matchData: any;
+    const responseText = await response.text();
+    console.log("Python API response body:", responseText.substring(0, 2000));
+
+    let responseBody: any;
     try {
-      matchData = JSON.parse(responseText);
+      responseBody = JSON.parse(responseText);
     } catch {
-      matchData = { raw_response: responseText.substring(0, 500) };
+      responseBody = { error: "Invalid JSON from Python API", raw: responseText.substring(0, 500) };
     }
 
-    // Save the search request to Supabase
-    await supabase.from("photo_search_requests").insert({
-      studio_id,
-      name,
-      phone,
-      selfie_url: `event:${event_id}`,
-      status: matchRes.ok ? "completed" : "pending",
+    return new Response(JSON.stringify(responseBody), {
+      status: response.status,
+      headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
-
-    const matchedPhotos = matchData?.matched_photos || matchData?.results || [];
-
-    return new Response(
-      JSON.stringify({
-        success: matchRes.ok,
-        matched_photos: matchedPhotos,
-        total_matches: matchedPhotos.length,
-        raw: matchData,
-      }),
-      { headers: { ...corsHeaders, "Content-Type": "application/json" } }
-    );
   } catch (e) {
     console.error("Unexpected error:", e);
     return new Response(
