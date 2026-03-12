@@ -1,22 +1,15 @@
 services:
   - type: web
-    name: deepface-api
+    name: sharma-face-api
     env: python
-    region: singapore          # closest to India
-    plan: starter              # $7/month — needed for 512MB+ RAM for TensorFlow
-    rootDir: python-api        # subfolder in your repo
-    buildCommand: >
-      pip install -r requirements.txt &&
-      python -c "from deepface import DeepFace; DeepFace.build_model('ArcFace'); print('Model ready ✅')"
+    region: singapore
+    rootDir: python-api
+    buildCommand: pip install -r requirements.txt
     startCommand: uvicorn main:app --host 0.0.0.0 --port $PORT --workers 1
     envVars:
       - key: MONGODB_URI
-        sync: false            # you will fill this in the dashboard
+        sync: false
       - key: GOOGLE_API_KEY
-        sync: false            # you will fill this in the dashboard
-      - key: DEEPFACE_MODEL
-        value: ArcFace
-      - key: DEEPFACE_DETECTOR
-        value: opencv
+        sync: false
       - key: PYTHON_VERSION
         value: 3.11.0

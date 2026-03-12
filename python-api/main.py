@@ -1,6 +1,5 @@
 import os
 import re
-import json
 import logging
 import tempfile
 import shutil
@@ -9,6 +8,7 @@ from typing import Optional, List
 
 import numpy as np
 import requests
+import face_recognition
 from fastapi import FastAPI, UploadFile, File, Form
 from fastapi.middleware.cors import CORSMiddleware
 from pymongo import MongoClient
@@ -18,21 +18,13 @@ logger = logging.getLogger(__name__)
 
 # ─── Config from Environment Variables ────────────────────────────────────────
 MONGODB_URI    = os.environ.get("MONGODB_URI", "")
-GOOGLE_API_KEY = os.environ.get("GOOGLE_API_KEY", "")   # Google Drive API key
+GOOGLE_API_KEY = os.environ.get("GOOGLE_API_KEY", "")
 DB_NAME        = "deepface_db"
 COLLECTION     = "face_embeddings"
-MODEL_NAME     = os.environ.get("DEEPFACE_MODEL", "ArcFace")
-DETECTOR       = os.environ.get("DEEPFACE_DETECTOR", "opencv")
 
-# ─── DeepFace — lazy load to speed up boot ────────────────────────────────────
-_deepface = None
-
-def df():
-    global _deepface
-    if _deepface is None:
-        from deepface import DeepFace
-        _deepface = DeepFace
-    return _deepface
+# face_recognition distance threshold — lower = stricter
+# 0.45 is strict, 0.55 is standard, 0.65 is loose
+MATCH_DISTANCE = float(os.environ.get("MATCH_DISTANCE", "0.55"))
 
 # ─── App ──────────────────────────────────────────────────────────────────────
 app = FastAPI(title="DeepFace API", version="2.0.0")
@@ -135,29 +127,21 @@ def download_file(download_url: str, dest: str):
 
 
 # ─── Face helpers ──────────────────────────────────────────────────────────────
-def get_embedding(image_path: str) -> Optional[List[float]]:
-    """Extract face embedding. Returns None if no face found."""
+def get_encoding(image_path: str) -> Optional[List[float]]:
+    """Extract 128-dim face encoding. Returns None if no face found."""
     try:
-        result = df().represent(
-            img_path=image_path,
-            model_name=MODEL_NAME,
-            detector_backend=DETECTOR,
-            enforce_detection=True,
-            align=True,
-        )
-        if result:
-            return result[0]["embedding"]
+        img = face_recognition.load_image_file(image_path)
+        encodings = face_recognition.face_encodings(img)
+        if encodings:
+            return encodings[0].tolist()
     except Exception as e:
         logger.debug(f"No face in {image_path}: {e}")
     return None
 
 
-def cosine_similarity(a: List[float], b: List[float]) -> float:
-    va, vb = np.array(a, dtype=np.float32), np.array(b, dtype=np.float32)
-    na, nb = np.linalg.norm(va), np.linalg.norm(vb)
-    if na == 0 or nb == 0:
-        return 0.0
-    return float(np.dot(va, vb) / (na * nb))
+def face_distance(a: List[float], b: List[float]) -> float:
+    """L2 distance between two face encodings. < 0.55 = same person."""
+    return float(np.linalg.norm(np.array(a, dtype=np.float32) - np.array(b, dtype=np.float32)))
 
 
 # ─── Routes ───────────────────────────────────────────────────────────────────
@@ -272,10 +256,15 @@ async def process_drive_folder(data: dict):
             dest = os.path.join(tmpdir, f["name"])
 
             try:
-                download_file(f["download_url"], dest)
-                embedding = get_embedding(dest)
+                r = requests.get(f["download_url"], stream=True, timeout=60)
+                r.raise_for_status()
+                with open(dest, "wb") as fp:
+                    for chunk in r.iter_content(65536):
+                        fp.write(chunk)
 
-                if embedding is None:
+                encoding = get_encoding(dest)
+
+                if encoding is None:
                     logger.info(f"  → No face detected, skipping")
                     skipped += 1
                     continue
@@ -285,7 +274,7 @@ async def process_drive_folder(data: dict):
                     "filename":  f["name"],
                     "file_id":   f["id"],
                     "photo_url": f["photo_url"],
-                    "embedding": embedding,
+                    "embedding": encoding,
                 })
                 processed += 1
                 logger.info(f"  → Embedded ✓")
@@ -293,26 +282,6 @@ async def process_drive_folder(data: dict):
             except Exception as e:
                 logger.warning(f"  → Error: {e}")
                 skipped += 1
-
-            # Clean up downloaded file to save disk space
-            try:
-                os.remove(dest)
-            except Exception:
-                pass
-
-    finally:
-        client.close()
-        shutil.rmtree(tmpdir, ignore_errors=True)
-
-    return {
-        "success": True,
-        "event_id": event_id,
-        "total_images": len(files),
-        "embedded": processed,
-        "skipped_no_face": skipped,
-        "message": f"Done! {processed} photos embedded for event '{event_id}'.",
-    }
-
 
 @app.post("/match")
 async def match_face(
@@ -331,9 +300,9 @@ async def match_face(
         with open(selfie_path, "wb") as f:
             f.write(contents)
 
-        # Get selfie embedding
-        selfie_emb = get_embedding(selfie_path)
-        if selfie_emb is None:
+        # Get selfie encoding
+        selfie_enc = get_encoding(selfie_path)
+        if selfie_enc is None:
             return {
                 "error": "No face detected in your selfie. Please use a clear, front-facing photo.",
                 "matched_photos": [],
@@ -353,21 +322,24 @@ async def match_face(
                 "matched_photos": [],
             }
 
-        # Compare selfie against every stored embedding
+        # Compare using L2 distance — lower = more similar
+        # Default tolerance in face_recognition library is 0.6
+        dist_threshold = threshold  # use passed threshold as max distance
         matched = []
         for doc in docs:
-            stored_emb = doc.get("embedding")
-            if not stored_emb:
+            stored = doc.get("embedding")
+            if not stored:
                 continue
-            sim = cosine_similarity(selfie_emb, stored_emb)
-            if sim >= threshold:
+            dist = face_distance(selfie_enc, stored)
+            if dist <= dist_threshold:
                 matched.append({
                     "filename":   doc.get("filename"),
                     "url":        doc.get("photo_url"),
-                    "similarity": round(sim, 4),
+                    "similarity": round(max(0.0, 1.0 - dist), 4),
+                    "distance":   round(dist, 4),
                 })
 
-        matched.sort(key=lambda x: x["similarity"], reverse=True)
+        matched.sort(key=lambda x: x["distance"])
 
         return {
             "success":        True,
@@ -391,7 +363,7 @@ async def debug_scores(
     event_id: str        = Form(...),
     file:     UploadFile = File(...),
 ):
-    """Returns similarity scores for ALL photos in an event (for debugging threshold)."""
+    """Returns distance scores for ALL photos in an event (for debugging threshold)."""
     contents = await file.read()
     tmpdir   = tempfile.mkdtemp()
     try:
@@ -399,8 +371,8 @@ async def debug_scores(
         with open(img_path, "wb") as f:
             f.write(contents)
 
-        selfie_emb = get_embedding(img_path)
-        if selfie_emb is None:
+        selfie_enc = get_encoding(img_path)
+        if selfie_enc is None:
             return {"error": "No face detected"}
 
         col, client = get_col()
@@ -411,14 +383,15 @@ async def debug_scores(
         for doc in docs:
             emb = doc.get("embedding")
             if emb:
-                sim = cosine_similarity(selfie_emb, emb)
+                dist = face_distance(selfie_enc, emb)
                 scores.append({
                     "filename":   doc.get("filename"),
-                    "similarity": round(sim, 4),
+                    "distance":   round(dist, 4),
+                    "similarity": round(max(0.0, 1.0 - dist), 4),
                     "url":        doc.get("photo_url"),
                 })
 
-        scores.sort(key=lambda x: x["similarity"], reverse=True)
+        scores.sort(key=lambda x: x["distance"])
         return {"event_id": event_id, "total": len(scores), "scores": scores}
     finally:
         shutil.rmtree(tmpdir, ignore_errors=True)
