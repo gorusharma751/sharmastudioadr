@@ -283,6 +283,19 @@ async def process_drive_folder(data: dict):
                 logger.warning(f"  → Error: {e}")
                 skipped += 1
 
+    finally:
+        client.close()
+        shutil.rmtree(tmpdir, ignore_errors=True)
+
+    return {
+        "success":     True,
+        "event_id":    event_id,
+        "total_files": len(files),
+        "processed":   processed,
+        "skipped":     skipped,
+    }
+
+
 @app.post("/match")
 async def match_face(
     event_id:  str        = Form(...),
