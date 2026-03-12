@@ -4,23 +4,22 @@ import logging
 import tempfile
 import shutil
 from pathlib import Path
-from typing import Optional, List
+from typing import Optional, List, Dict
 
 import cv2
 import numpy as np
 import requests
 from fastapi import FastAPI, UploadFile, File, Form
 from fastapi.middleware.cors import CORSMiddleware
-from pymongo import MongoClient
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 logger = logging.getLogger(__name__)
 
 # ─── Config from Environment Variables ────────────────────────────────────────
-MONGODB_URI    = os.environ.get("MONGODB_URI", "")
-GOOGLE_API_KEY = os.environ.get("GOOGLE_API_KEY", "")
-DB_NAME        = "deepface_db"
-COLLECTION     = "face_embeddings"
+SUPABASE_URL         = os.environ.get("SUPABASE_URL", "").rstrip("/")
+SUPABASE_SERVICE_KEY = os.environ.get("SUPABASE_SERVICE_KEY", "")
+GOOGLE_API_KEY       = os.environ.get("GOOGLE_API_KEY", "")
+EMBEDDINGS_TABLE     = "face_embeddings"
 
 # insightface cosine similarity threshold — higher = stricter
 # 0.3 = loose, 0.4 = standard, 0.5 = strict
@@ -43,7 +42,7 @@ def get_face_app():
     return _face_app
 
 # ─── App ──────────────────────────────────────────────────────────────────────
-app = FastAPI(title="DeepFace API", version="2.0.0")
+app = FastAPI(title="Face Match API", version="3.0.0")
 
 app.add_middleware(
     CORSMiddleware,
@@ -53,11 +52,67 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# ─── MongoDB helpers ──────────────────────────────────────────────────────────
-def get_col():
-    """Return (collection, client). Caller must close client."""
-    client = MongoClient(MONGODB_URI, serverSelectionTimeoutMS=12000)
-    return client[DB_NAME][COLLECTION], client
+# ─── Supabase REST helpers ─────────────────────────────────────────────────────
+def _sb_headers(extra: Dict[str, str] = None) -> dict:
+    h = {
+        "apikey": SUPABASE_SERVICE_KEY,
+        "Authorization": f"Bearer {SUPABASE_SERVICE_KEY}",
+        "Content-Type": "application/json",
+    }
+    if extra:
+        h.update(extra)
+    return h
+
+def sb_select(table: str, filters: Dict[str, str] = None, select: str = "*") -> List[dict]:
+    params = {"select": select}
+    if filters:
+        params.update(filters)
+    r = requests.get(
+        f"{SUPABASE_URL}/rest/v1/{table}",
+        headers=_sb_headers(),
+        params=params,
+        timeout=30,
+    )
+    r.raise_for_status()
+    return r.json()
+
+def sb_count(table: str, filters: Dict[str, str] = None) -> int:
+    params = {"select": "id"}
+    if filters:
+        params.update(filters)
+    r = requests.get(
+        f"{SUPABASE_URL}/rest/v1/{table}",
+        headers=_sb_headers({"Prefer": "count=exact"}),
+        params=params,
+        timeout=15,
+    )
+    r.raise_for_status()
+    cr = r.headers.get("content-range", "0/0")
+    try:
+        return int(cr.split("/")[-1])
+    except (ValueError, IndexError):
+        return 0
+
+def sb_insert(table: str, rows: List[dict]) -> None:
+    """Insert rows in batches of 50 to stay under request limits."""
+    for i in range(0, len(rows), 50):
+        batch = rows[i:i + 50]
+        r = requests.post(
+            f"{SUPABASE_URL}/rest/v1/{table}",
+            headers=_sb_headers({"Prefer": "return=minimal"}),
+            json=batch,
+            timeout=60,
+        )
+        r.raise_for_status()
+
+def sb_delete(table: str, filters: Dict[str, str]) -> None:
+    r = requests.delete(
+        f"{SUPABASE_URL}/rest/v1/{table}",
+        headers=_sb_headers(),
+        params=filters,
+        timeout=15,
+    )
+    r.raise_for_status()
 
 # ─── Google Drive helpers ──────────────────────────────────────────────────────
 def extract_folder_id(link: str) -> str:
@@ -171,7 +226,7 @@ def cosine_similarity(a: List[float], b: List[float]) -> float:
 
 @app.get("/")
 def home():
-    return {"status": "DeepFace API running ✅"}
+    return {"status": "Face Match API running ✅", "version": "3.0.0"}
 
 
 @app.get("/health")
@@ -181,14 +236,11 @@ def health():
 
 @app.get("/test-db")
 def test_db():
-    """Test MongoDB Atlas connection."""
-    if not MONGODB_URI:
-        return {"error": "MONGODB_URI environment variable is not set"}
+    """Test Supabase connection."""
+    if not SUPABASE_URL or not SUPABASE_SERVICE_KEY:
+        return {"error": "SUPABASE_URL or SUPABASE_SERVICE_KEY environment variable is not set"}
     try:
-        col, client = get_col()
-        client.admin.command("ping")
-        total = col.count_documents({})
-        client.close()
+        total = sb_count(EMBEDDINGS_TABLE)
         return {"status": "connected", "total_embeddings": total}
     except Exception as e:
         return {"error": str(e)}
@@ -198,9 +250,7 @@ def test_db():
 def event_stats(event_id: str):
     """How many face embeddings are stored for this event."""
     try:
-        col, client = get_col()
-        total = col.count_documents({"event_id": event_id})
-        client.close()
+        total = sb_count(EMBEDDINGS_TABLE, {"event_id": f"eq.{event_id}"})
         return {"event_id": event_id, "total_photos": total}
     except Exception as e:
         return {"error": str(e)}
@@ -209,9 +259,7 @@ def event_stats(event_id: str):
 @app.get("/processing-status/{event_id}")
 def processing_status(event_id: str):
     try:
-        col, client = get_col()
-        total = col.count_documents({"event_id": event_id})
-        client.close()
+        total = sb_count(EMBEDDINGS_TABLE, {"event_id": f"eq.{event_id}"})
         return {
             "event_id": event_id,
             "total_embedded": total,
@@ -260,18 +308,17 @@ async def process_drive_folder(data: dict):
 
     logger.info(f"Found {len(files)} images")
 
-    # 3. Connect to MongoDB and remove old embeddings
+    # 3. Clear old embeddings for this event, then process
     try:
-        col, client = get_col()
+        sb_delete(EMBEDDINGS_TABLE, {"event_id": f"eq.{event_id}"})
+        logger.info(f"Cleared old embeddings for event '{event_id}'")
     except Exception as e:
-        return {"error": f"MongoDB connection failed: {e}"}
-
-    deleted = col.delete_many({"event_id": event_id}).deleted_count
-    logger.info(f"Removed {deleted} old embeddings for event '{event_id}'")
+        return {"error": f"Database error clearing old embeddings: {e}"}
 
     processed = 0
     skipped   = 0
     tmpdir    = tempfile.mkdtemp()
+    batch: List[dict] = []
 
     try:
         for i, f in enumerate(files):
@@ -292,7 +339,7 @@ async def process_drive_folder(data: dict):
                     skipped += 1
                     continue
 
-                col.insert_one({
+                batch.append({
                     "event_id":  event_id,
                     "filename":  f["name"],
                     "file_id":   f["id"],
@@ -302,12 +349,20 @@ async def process_drive_folder(data: dict):
                 processed += 1
                 logger.info(f"  → Embedded ✓")
 
+                # Flush every 50 records to avoid oversized requests
+                if len(batch) >= 50:
+                    sb_insert(EMBEDDINGS_TABLE, batch)
+                    batch = []
+
             except Exception as e:
                 logger.warning(f"  → Error: {e}")
                 skipped += 1
 
+        # Flush remaining records
+        if batch:
+            sb_insert(EMBEDDINGS_TABLE, batch)
+
     finally:
-        client.close()
         shutil.rmtree(tmpdir, ignore_errors=True)
 
     return {
@@ -345,9 +400,11 @@ async def match_face(
             }
 
         # Load stored embeddings for this event
-        col, client = get_col()
-        docs = list(col.find({"event_id": event_id}))
-        client.close()
+        docs = sb_select(
+            EMBEDDINGS_TABLE,
+            {"event_id": f"eq.{event_id}"},
+            select="embedding,photo_url,filename,file_id",
+        )
 
         if not docs:
             return {
@@ -409,9 +466,11 @@ async def debug_scores(
         if selfie_emb is None:
             return {"error": "No face detected"}
 
-        col, client = get_col()
-        docs = list(col.find({"event_id": event_id}))
-        client.close()
+        docs = sb_select(
+            EMBEDDINGS_TABLE,
+            {"event_id": f"eq.{event_id}"},
+            select="embedding,photo_url,filename",
+        )
 
         scores = []
         for doc in docs:
@@ -426,6 +485,8 @@ async def debug_scores(
 
         scores.sort(key=lambda x: x["similarity"], reverse=True)
         return {"event_id": event_id, "total": len(scores), "scores": scores}
+    except Exception as e:
+        return {"error": str(e)}
     finally:
         shutil.rmtree(tmpdir, ignore_errors=True)
 
