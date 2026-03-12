@@ -18,6 +18,28 @@ import {
 
 const PYTHON_API = 'https://sharmastudioadr.onrender.com';
 
+async function pingPythonHealth(): Promise<boolean> {
+  try {
+    const res = await fetch(`${PYTHON_API}/health`, {
+      method: 'GET',
+      signal: AbortSignal.timeout(10000),
+    });
+    return res.ok;
+  } catch {
+    return false;
+  }
+}
+
+async function waitForPythonServer(maxWakeSecs = 180): Promise<boolean> {
+  const startedAt = Date.now();
+  while ((Date.now() - startedAt) / 1000 < maxWakeSecs) {
+    const healthy = await pingPythonHealth();
+    if (healthy) return true;
+    await new Promise(resolve => setTimeout(resolve, 5000));
+  }
+  return false;
+}
+
 interface Event {
   id: string;
   studio_id: string;
@@ -181,18 +203,53 @@ const FindPhotosManager: React.FC = () => {
     setEventStatuses(s => ({ ...s, [event.id]: '⏳ Waking up AI server (may take ~30s)...' }));
 
     try {
-      // Call the Python API directly — bypasses edge function timeout limits
-      const response = await fetch(`${PYTHON_API}/process-drive-folder`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          folder_link: event.drive_folder_link,
-          event_id: event.api_event_id,
-        }),
-        signal: AbortSignal.timeout(300000), // 5-minute timeout for large folders
-      });
+      const healthy = await waitForPythonServer(180);
+      if (!healthy) {
+        const msg = 'AI server did not wake up in time. Wait 30 seconds and try again.';
+        setEventStatuses(s => ({ ...s, [event.id]: `❌ ${msg}` }));
+        toast({ title: 'Error', description: msg, variant: 'destructive' });
+        return;
+      }
 
-      const result = await response.json();
+      setEventStatuses(s => ({ ...s, [event.id]: '📸 Processing photos. Please wait...' }));
+
+      let result: any = null;
+      let lastErr = '';
+      for (let attempt = 1; attempt <= 2; attempt += 1) {
+        try {
+          const response = await fetch(`${PYTHON_API}/process-drive-folder`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              folder_link: event.drive_folder_link,
+              event_id: event.api_event_id,
+            }),
+            signal: AbortSignal.timeout(420000), // 7 minutes for larger folders
+          });
+
+          const text = await response.text();
+          try {
+            result = JSON.parse(text);
+          } catch {
+            result = { error: text || `Server error (${response.status})` };
+          }
+
+          if (!response.ok && !result?.error) {
+            result = { error: `Server error (${response.status})` };
+          }
+          break;
+        } catch (err: any) {
+          lastErr = err?.message || String(err);
+          if (attempt < 2) {
+            setEventStatuses(s => ({ ...s, [event.id]: `🔁 Network retry ${attempt}/1...` }));
+            await new Promise(resolve => setTimeout(resolve, 8000));
+          }
+        }
+      }
+
+      if (!result) {
+        throw new Error(lastErr || 'Failed to reach Python API');
+      }
 
       if (result?.success) {
         const msg = `✅ Done! ${result.processed} photos embedded, ${result.skipped} skipped.`;
