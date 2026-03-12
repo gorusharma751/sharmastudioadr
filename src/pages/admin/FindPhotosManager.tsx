@@ -3,8 +3,6 @@ import { motion } from 'framer-motion';
 import { Search, Phone, Clock, CheckCircle, RefreshCw, Play, ImageIcon, Trash2, Plus, Calendar, MapPin, Link2, Hash, Loader2, AlertTriangle, Wifi, Database, Image, ExternalLink, ChevronDown, ChevronUp } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
 import { supabase } from '@/integrations/supabase/client';
-
-const PYTHON_API = 'https://sharmastudioadr.onrender.com';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -17,6 +15,8 @@ import {
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger,
 } from '@/components/ui/dialog';
+
+const PYTHON_API = 'https://sharmastudioadr.onrender.com';
 
 interface Event {
   id: string;
