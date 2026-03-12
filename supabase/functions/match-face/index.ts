@@ -64,7 +64,7 @@ Deno.serve(async (req: Request) => {
     formData.append("name", name);
     formData.append("mobile", mobile);
     formData.append("event_id", event_id);
-    formData.append("threshold", threshold || "0.55");
+    formData.append("threshold", threshold || "0.35");
     formData.append("file", fileBlob, file_name || "selfie.jpg");
 
     console.log(`Calling ${PYTHON_API_URL}/match …`);
