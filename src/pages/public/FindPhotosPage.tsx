@@ -29,10 +29,7 @@ interface MatchedPhoto {
 // ─── Two possible processing sub-states displayed in the processing screen ───
 type ProcessingStage = 'waking' | 'matching';
 
-const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL as string;
-const ANON_KEY    = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY as string;
-const EDGE_URL    = `${SUPABASE_URL}/functions/v1/match-face`;
-const EDGE_HEADERS = { apikey: ANON_KEY, Authorization: `Bearer ${ANON_KEY}` };
+// Call the Python API directly — it has CORS enabled, no edge proxy needed
 const PYTHON_API  = 'https://sharmastudioadr.onrender.com';
 
 /**
@@ -147,35 +144,27 @@ const FindPhotosPage: React.FC = () => {
         return;
       }
 
-      // ── Phase 2: Build payload ────────────────────────────────────────────
+      // ── Phase 2: Build FormData and call Python API directly ────────────
       setProcStage('matching');
-      const fileBase64 = await new Promise<string>((resolve, reject) => {
-        const reader = new FileReader();
-        reader.onload = () => resolve((reader.result as string).split(',')[1]);
-        reader.onerror = reject;
-        reader.readAsDataURL(selfieFile!);
-      });
-      const payload = {
-        name: name.trim(),
-        mobile: phone.trim(),
-        event_id: selectedEvent.api_event_id,
-        threshold: '0.35',
-        file_base64: fileBase64,
-        file_name: selfieFile!.name,
-        file_type: selfieFile!.type,
-      };
 
-      console.log('Sending match payload, event_id:', payload.event_id);
+      const formData = new FormData();
+      formData.append('name', name.trim());
+      formData.append('mobile', phone.trim());
+      formData.append('event_id', selectedEvent.api_event_id);
+      formData.append('threshold', '0.35');
+      formData.append('file', selfieFile!, selfieFile!.name);
 
-      // ── Phase 3: Call match endpoint ──────────────────────────────────────
-      const response = await fetch(EDGE_URL, {
+      console.log('Calling Python API directly, event_id:', selectedEvent.api_event_id);
+
+      // ── Phase 3: POST to Python API ───────────────────────────────────────
+      const response = await fetch(`${PYTHON_API}/match`, {
         method: 'POST',
-        headers: { ...EDGE_HEADERS, 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload),
+        body: formData,
+        signal: AbortSignal.timeout(150000),
       });
 
       const text = await response.text();
-      console.log(`match-face HTTP ${response.status}:`, text.substring(0, 800));
+      console.log(`Python API HTTP ${response.status}:`, text.substring(0, 800));
 
       let result: any;
       try { result = JSON.parse(text); } catch { result = { error: text || 'Invalid JSON' }; }
