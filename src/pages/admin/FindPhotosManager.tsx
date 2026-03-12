@@ -205,7 +205,7 @@ const FindPhotosManager: React.FC = () => {
       }
     } catch (error: any) {
       const msg = error?.name === 'TimeoutError'
-        ? 'Timed out after 5 minutes. The folder may be too large, or the server is still waking up. Try again in 30 seconds.'
+        ? 'Timed out. Server may still be waking up — wait 30 seconds and try again.'
         : (error?.message || 'Failed to reach Python API');
       setEventStatuses(s => ({ ...s, [event.id]: `❌ ${msg}` }));
       toast({ title: 'Error', description: msg, variant: 'destructive' });
