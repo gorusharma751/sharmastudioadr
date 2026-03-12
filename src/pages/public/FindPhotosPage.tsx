@@ -1,6 +1,6 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Camera, User, Phone, Upload, Search, CheckCircle, Sparkles, ImageIcon, Download, Calendar, MapPin, ChevronDown } from 'lucide-react';
+import { Camera, User, Phone, Upload, Search, CheckCircle, Sparkles, ImageIcon, Download, Calendar, MapPin, ChevronDown, Wifi } from 'lucide-react';
 import GlassNavbar from '@/components/GlassNavbar';
 import Footer from '@/components/Footer';
 import { SectionContainer, SectionHeader, GlowButton } from '@/components/ui/shared';
@@ -26,6 +26,33 @@ interface MatchedPhoto {
   similarity?: number;
 }
 
+// ─── Two possible processing sub-states displayed in the processing screen ───
+type ProcessingStage = 'waking' | 'matching';
+
+const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL as string;
+const ANON_KEY    = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY as string;
+const EDGE_URL    = `${SUPABASE_URL}/functions/v1/match-face`;
+const EDGE_HEADERS = { apikey: ANON_KEY, Authorization: `Bearer ${ANON_KEY}` };
+const PYTHON_API  = 'https://deepface-api-43ft.onrender.com';
+
+/**
+ * Ping the Python API health endpoint directly from the browser using no-cors mode.
+ * In no-cors mode: if fetch RESOLVES → server is responding (awake).
+ *                  if fetch THROWS  → server is still sleeping / not ready.
+ */
+async function pingPythonHealth(): Promise<boolean> {
+  try {
+    await fetch(`${PYTHON_API}/health`, {
+      method: 'GET',
+      mode: 'no-cors',
+      signal: AbortSignal.timeout(9000),
+    });
+    return true; // opaque response = server is up
+  } catch {
+    return false;
+  }
+}
+
 const FindPhotosPage: React.FC = () => {
   const { studio } = useStudio();
   const { toast } = useToast();
@@ -42,14 +69,28 @@ const FindPhotosPage: React.FC = () => {
   const [matchedPhotos, setMatchedPhotos] = useState<MatchedPhoto[]>([]);
   const [selectedPhoto, setSelectedPhoto] = useState<string | null>(null);
 
+  // Processing UI state
+  const [procStage, setProcStage] = useState<ProcessingStage>('waking');
+  const [wakeElapsed, setWakeElapsed] = useState(0); // seconds since waking started
+  const MAX_WAKE_SECS = 180;
+  const wakeTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const abortRef = useRef(false);
+
   useEffect(() => {
     if (studio?.id) fetchEvents();
   }, [studio?.id]);
 
+  useEffect(() => () => {
+    abortRef.current = true;
+    if (wakeTimerRef.current) clearInterval(wakeTimerRef.current);
+  }, []);
+
   const fetchEvents = async () => {
+    if (!studio?.id) return;
     const { data } = await supabase
       .from('events')
       .select('id, name, venue, event_date, api_event_id')
+      .eq('studio_id', studio.id)
       .eq('is_active', true)
       .order('event_date', { ascending: false });
     setEvents((data as EventItem[]) || []);
@@ -63,6 +104,25 @@ const FindPhotosPage: React.FC = () => {
     }
   };
 
+  /** Poll health every 5 s until healthy or timeout. Returns true if healthy. */
+  const waitForServer = (): Promise<boolean> =>
+    new Promise((resolve) => {
+      let elapsed = 0;
+      setWakeElapsed(0);
+      wakeTimerRef.current = setInterval(async () => {
+        elapsed += 5;
+        setWakeElapsed(elapsed);
+        if (abortRef.current) { clearInterval(wakeTimerRef.current!); resolve(false); return; }
+        const healthy = await pingPythonHealth();
+        if (healthy || elapsed >= MAX_WAKE_SECS) {
+          clearInterval(wakeTimerRef.current!);
+          resolve(healthy);
+        }
+      }, 5000);
+      // Also fire one immediate check
+      pingPythonHealth().then((h) => { if (h) { clearInterval(wakeTimerRef.current!); resolve(true); } });
+    });
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!selectedEvent || !selfieFile || !name.trim() || !phone.trim()) {
@@ -70,82 +130,96 @@ const FindPhotosPage: React.FC = () => {
       return;
     }
 
+    abortRef.current = false;
     setIsSubmitting(true);
     setStep('processing');
+    setProcStage('waking');
+    setWakeElapsed(0);
 
     try {
-      // Convert file to base64 for JSON transport through Supabase proxy
+      // ── Phase 1: Wait for Python server to be healthy ─────────────────────
+      const healthy = await waitForServer();
+      if (abortRef.current) return;
+      if (!healthy) {
+        toast({ title: 'Server Unavailable', description: 'The AI server did not respond after 3 minutes. Please try again later.', variant: 'destructive' });
+        setStep('form');
+        setIsSubmitting(false);
+        return;
+      }
+
+      // ── Phase 2: Build payload ────────────────────────────────────────────
+      setProcStage('matching');
       const fileBase64 = await new Promise<string>((resolve, reject) => {
         const reader = new FileReader();
-        reader.onload = () => {
-          const result = reader.result as string;
-          // Remove data URL prefix (e.g., "data:image/jpeg;base64,")
-          const base64 = result.split(',')[1];
-          resolve(base64);
-        };
+        reader.onload = () => resolve((reader.result as string).split(',')[1]);
         reader.onerror = reject;
-        reader.readAsDataURL(selfieFile);
+        reader.readAsDataURL(selfieFile!);
       });
-
       const payload = {
         name: name.trim(),
         mobile: phone.trim(),
         event_id: selectedEvent.api_event_id,
         threshold: '0.55',
         file_base64: fileBase64,
-        file_name: selfieFile.name,
-        file_type: selfieFile.type,
+        file_name: selfieFile!.name,
+        file_type: selfieFile!.type,
       };
 
-      console.log('Sending match request with payload keys:', Object.keys(payload));
+      console.log('Sending match payload, event_id:', payload.event_id);
 
-      const projectId = import.meta.env.VITE_SUPABASE_PROJECT_ID || 'hdyxyljiuoippdxxkngx';
-      const anonKey = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY;
+      // ── Phase 3: Call match endpoint ──────────────────────────────────────
+      const response = await fetch(EDGE_URL, {
+        method: 'POST',
+        headers: { ...EDGE_HEADERS, 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
 
-      const response = await fetch(
-        `https://${projectId}.supabase.co/functions/v1/match-face`,
-        {
-          method: 'POST',
-          headers: {
-            'apikey': anonKey,
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify(payload),
+      const text = await response.text();
+      console.log(`match-face HTTP ${response.status}:`, text.substring(0, 800));
+
+      let result: any;
+      try { result = JSON.parse(text); } catch { result = { error: text || 'Invalid JSON' }; }
+
+      if (!response.ok || result?.error) {
+        // Translate misleading Python API messages into user-friendly ones
+        const rawErr: string = result?.error || `Server error (${response.status})`;
+        let friendlyErr = rawErr;
+        if (rawErr.toLowerCase().includes('waking') || rawErr.toLowerCase().includes('wake')) {
+          friendlyErr = 'The AI server is still starting up. Please wait a moment and try again.';
+        } else if (rawErr.toLowerCase().includes('auth') || rawErr.toLowerCase().includes('mongodb')) {
+          friendlyErr = 'The AI service has a configuration issue. Please contact the studio admin.';
+        } else if (rawErr.toLowerCase().includes('no face') || rawErr.toLowerCase().includes('face not')) {
+          friendlyErr = 'No face detected in your selfie. Please use a clear, front-facing photo and try again.';
+        } else if (rawErr.toLowerCase().includes('event') && rawErr.toLowerCase().includes('not')) {
+          friendlyErr = 'This event has no photos processed yet. Ask the studio to process the event photos first.';
         }
-      );
-
-      const result = await response.json();
-      console.log('Match-face response:', result);
-
-      if (result?.error) {
-        const isServerWaking = response.status === 502 || response.status === 503;
-        toast({ 
-          title: isServerWaking ? '⏳ Server Starting Up' : 'Error', 
-          description: isServerWaking 
-            ? 'The AI server is waking up. Please wait 30-60 seconds and try again.' 
-            : (result.error || 'Failed to process'), 
-          variant: 'destructive' 
-        });
+        toast({ title: 'Match Failed', description: friendlyErr, variant: 'destructive' });
         setStep('form');
+        setIsSubmitting(false);
         return;
       }
 
-      const photos: MatchedPhoto[] = result?.matched_photos || result?.photos || [];
-      const normalized = photos.map((p: any) =>
+      // ── Phase 4: Show results ─────────────────────────────────────────────
+      console.log('Raw result keys:', Object.keys(result));
+      console.log('Raw result:', JSON.stringify(result).substring(0, 600));
+
+      const rawPhotos: any[] = result?.matched_photos ?? result?.photos ?? result?.results ?? result?.data ?? [];
+      const photos: MatchedPhoto[] = rawPhotos.map((p: any) =>
         typeof p === 'string' ? { url: p } : p
       );
 
-      setMatchedPhotos(normalized);
+      setMatchedPhotos(photos);
       setStep('results');
 
-      if (normalized.length > 0) {
-        toast({ title: '🎉 Photos Found!', description: `We found ${normalized.length} photos of you!` });
-      } else {
-        toast({ title: 'No matches', description: 'Try again with a clearer selfie.' });
-      }
-    } catch (error: any) {
-      console.error('Match error:', error);
-      toast({ title: 'Error', description: error?.message || 'Failed to process. The server may be starting up - try again in 30-60 seconds.', variant: 'destructive' });
+      toast({
+        title: photos.length > 0 ? '🎉 Photos Found!' : 'No Matches',
+        description: photos.length > 0
+          ? `Found ${photos.length} photo${photos.length > 1 ? 's' : ''} of you!`
+          : 'No matching photos found. Try a clearer front-facing selfie.',
+      });
+    } catch (err: any) {
+      console.error('handleSubmit error:', err);
+      toast({ title: 'Error', description: err?.message || 'Something went wrong.', variant: 'destructive' });
       setStep('form');
     } finally {
       setIsSubmitting(false);
@@ -155,6 +229,9 @@ const FindPhotosPage: React.FC = () => {
   const getPhotoUrl = (photo: MatchedPhoto): string => photo.url || photo.image_url || '';
 
   const handleReset = () => {
+    abortRef.current = true;
+    if (wakeTimerRef.current) clearInterval(wakeTimerRef.current);
+    abortRef.current = false;
     setStep('event');
     setSelectedEvent(null);
     setMatchedPhotos([]);
@@ -293,10 +370,31 @@ const FindPhotosPage: React.FC = () => {
             {/* Processing */}
             {step === 'processing' && (
               <motion.div key="processing" initial={{ opacity: 0, scale: 0.9 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0 }} className="max-w-xl mx-auto text-center py-16">
-                <motion.div animate={{ rotate: 360 }} transition={{ repeat: Infinity, duration: 2, ease: 'linear' }} className="w-20 h-20 mx-auto mb-8 rounded-full border-4 border-primary border-t-transparent" />
-                <h2 className="font-display text-2xl font-bold mb-4">Matching Your Face...</h2>
-                <p className="text-muted-foreground mb-6">This may take a moment, especially if the server is waking up.</p>
-                <Progress value={65} className="max-w-xs mx-auto" />
+                {procStage === 'waking' ? (
+                  <>
+                    <motion.div animate={{ scale: [1, 1.15, 1] }} transition={{ repeat: Infinity, duration: 1.8 }} className="w-20 h-20 mx-auto mb-8 rounded-full bg-amber-500/20 flex items-center justify-center">
+                      <Wifi className="text-amber-400" size={36} />
+                    </motion.div>
+                    <h2 className="font-display text-2xl font-bold mb-2">Starting AI Server...</h2>
+                    <p className="text-muted-foreground mb-6">
+                      The face recognition server is waking up on Render.com.<br />
+                      <span className="text-sm">This takes up to 2 minutes on first use.</span>
+                    </p>
+                    <div className="max-w-xs mx-auto mb-3">
+                      <Progress value={Math.min((wakeElapsed / MAX_WAKE_SECS) * 100, 95)} />
+                    </div>
+                    <p className="text-sm text-muted-foreground">
+                      {wakeElapsed}s elapsed &bull; checking every 5 seconds...
+                    </p>
+                  </>
+                ) : (
+                  <>
+                    <motion.div animate={{ rotate: 360 }} transition={{ repeat: Infinity, duration: 2, ease: 'linear' }} className="w-20 h-20 mx-auto mb-8 rounded-full border-4 border-primary border-t-transparent" />
+                    <h2 className="font-display text-2xl font-bold mb-4">Matching Your Face...</h2>
+                    <p className="text-muted-foreground mb-6">Server is ready. Scanning event photos for your face.</p>
+                    <Progress value={70} className="max-w-xs mx-auto" />
+                  </>
+                )}
               </motion.div>
             )}
 

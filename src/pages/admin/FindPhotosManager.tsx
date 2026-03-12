@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
-import { Search, Phone, Clock, CheckCircle, RefreshCw, Play, ImageIcon, Trash2, Plus, Calendar, MapPin, Link2, Hash, Loader2 } from 'lucide-react';
+import { Search, Phone, Clock, CheckCircle, RefreshCw, Play, ImageIcon, Trash2, Plus, Calendar, MapPin, Link2, Hash, Loader2, AlertTriangle, Wifi, Database, Image, ExternalLink, ChevronDown, ChevronUp } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
 import { supabase } from '@/integrations/supabase/client';
 import { Button } from '@/components/ui/button';
@@ -38,6 +38,14 @@ interface PhotoSearchRequest {
   created_at: string;
 }
 
+interface ApiStatus {
+  checking: boolean;
+  health: { ok: boolean; error?: string } | null;
+  db: { ok: boolean; error?: string; data?: unknown } | null;
+  events: Record<string, { ok: boolean; total?: number; error?: string; data?: unknown }>;
+  showDetails: boolean;
+}
+
 const statusColors: Record<string, string> = {
   pending: 'bg-warning/20 text-warning',
   processing: 'bg-info/20 text-info',
@@ -53,6 +61,9 @@ const FindPhotosManager: React.FC = () => {
   const [searchQuery, setSearchQuery] = useState('');
   const [processingEventId, setProcessingEventId] = useState<string | null>(null);
   const [eventStatuses, setEventStatuses] = useState<Record<string, string>>({});
+  const [apiStatus, setApiStatus] = useState<ApiStatus>({
+    checking: false, health: null, db: null, events: {}, showDetails: false,
+  });
 
   // New event form
   const [showCreateDialog, setShowCreateDialog] = useState(false);
@@ -85,6 +96,50 @@ const FindPhotosManager: React.FC = () => {
       .order('created_at', { ascending: false });
     if (!error) setRequests(data || []);
     setLoading(false);
+  };
+
+  const checkApiStatus = async () => {
+    setApiStatus(s => ({ ...s, checking: true, health: null, db: null, events: {} }));
+    const event_ids = events.map(e => e.api_event_id);
+    try {
+      const res = await supabase.functions.invoke('process-drive-photos', {
+        body: { action: 'status', event_ids },
+      });
+      if (res.error) throw res.error;
+      const d = res.data as any;
+      const eventMap: ApiStatus['events'] = {};
+      if (d.events) {
+        for (const [eid, edata] of Object.entries(d.events as Record<string, any>)) {
+          const isOk = edata.ok && !edata.data?.error;
+          eventMap[eid] = {
+            ok: isOk,
+            total: edata.data?.total_photos ?? edata.data?.count ?? edata.data?.total,
+            error: edata.data?.error ?? edata.error,
+            data: edata.data,
+          };
+        }
+      }
+      const dbData = d.db?.data as any;
+      const dbOk = d.db?.ok && !dbData?.error;
+      setApiStatus({
+        checking: false,
+        health: { ok: d.health?.ok ?? false, error: d.health?.error },
+        db: {
+          ok: dbOk,
+          error: dbData?.error ? String(dbData.error).substring(0, 120) : d.db?.error,
+          data: dbData,
+        },
+        events: eventMap,
+        showDetails: true,
+      });
+    } catch (err: any) {
+      setApiStatus(s => ({
+        ...s,
+        checking: false,
+        health: { ok: false, error: err?.message },
+        showDetails: true,
+      }));
+    }
   };
 
   const createEvent = async () => {
@@ -132,13 +187,24 @@ const FindPhotosManager: React.FC = () => {
       });
 
       if (res.error) throw res.error;
+
+      // Handle MongoDB auth error surfaced clearly
+      if (res.data?.error === 'MongoDB authentication failed') {
+        const msg = 'MongoDB auth failed. Fix MONGODB_URI in Render.com → your Python API service → Environment tab.';
+        setEventStatuses(s => ({ ...s, [event.id]: `❌ ${msg}` }));
+        toast({ title: '❌ Database Error', description: msg, variant: 'destructive' });
+        return;
+      }
+
       if (res.data?.success) {
-        setEventStatuses(s => ({ ...s, [event.id]: '✅ Processing complete!' }));
+        setEventStatuses(s => ({ ...s, [event.id]: '✅ Processing complete! Photos embedded.' }));
         toast({ title: '🎉 Done!', description: `Photos processed for "${event.name}"` });
       } else {
-        const errMsg = res.data?.data?.error || res.data?.data?.detail || 'Unknown error';
-        setEventStatuses(s => ({ ...s, [event.id]: `❌ Error: ${errMsg}` }));
-        toast({ title: 'Error', description: errMsg, variant: 'destructive' });
+        const errMsg = res.data?.data?.error || res.data?.error || res.data?.data?.detail || 'Unknown error';
+        const isMongoError = String(errMsg).toLowerCase().includes('auth') || String(errMsg).toLowerCase().includes('mongodb');
+        const hint = isMongoError ? ' → Fix MONGODB_URI in Render.com dashboard.' : '';
+        setEventStatuses(s => ({ ...s, [event.id]: `❌ ${String(errMsg).substring(0, 100)}${hint}` }));
+        toast({ title: 'Error', description: String(errMsg).substring(0, 200) + hint, variant: 'destructive' });
       }
     } catch (error: any) {
       setEventStatuses(s => ({ ...s, [event.id]: `❌ Failed: ${error?.message}` }));
@@ -196,6 +262,103 @@ const FindPhotosManager: React.FC = () => {
         <Button onClick={() => { fetchEvents(); fetchRequests(); }} variant="outline" size="sm">
           <RefreshCw size={16} className="mr-2" /> Refresh
         </Button>
+      </div>
+
+      {/* ── API Status Diagnostics Panel ───────────────────────────────── */}
+      <div className="border border-border rounded-xl p-4 space-y-3 bg-muted/30">
+        <div className="flex items-center justify-between">
+          <h2 className="font-semibold flex items-center gap-2 text-sm">
+            <Wifi size={16} className="text-primary" /> API System Status
+          </h2>
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={checkApiStatus}
+            disabled={apiStatus.checking || events.length === 0}
+          >
+            {apiStatus.checking
+              ? <><Loader2 size={14} className="mr-1 animate-spin" /> Checking...</>
+              : <><RefreshCw size={14} className="mr-1" /> Run Diagnostics</>}
+          </Button>
+        </div>
+
+        {apiStatus.showDetails && (
+          <div className="space-y-2">
+            {/* Row: Python API health */}
+            <div className="flex items-center gap-3 text-sm">
+              <span className={`w-2 h-2 rounded-full ${apiStatus.health?.ok ? 'bg-green-500' : 'bg-red-500'}`} />
+              <span className="font-medium w-32">Python API</span>
+              <span className={apiStatus.health?.ok ? 'text-green-600' : 'text-red-600'}>
+                {apiStatus.health?.ok ? 'Online ✓' : `Offline — ${apiStatus.health?.error ?? 'no response'}`}
+              </span>
+            </div>
+
+            {/* Row: MongoDB */}
+            <div className="flex items-start gap-3 text-sm">
+              <span className={`w-2 h-2 rounded-full mt-1 shrink-0 ${apiStatus.db?.ok ? 'bg-green-500' : 'bg-red-500'}`} />
+              <span className="font-medium w-32 shrink-0">MongoDB Atlas</span>
+              <div>
+                <span className={apiStatus.db?.ok ? 'text-green-600' : 'text-red-600'}>
+                  {apiStatus.db?.ok ? 'Connected ✓' : 'Auth Failed ✗'}
+                </span>
+                {!apiStatus.db?.ok && apiStatus.db?.error && (
+                  <p className="text-xs text-muted-foreground mt-0.5 max-w-md">{apiStatus.db.error}</p>
+                )}
+              </div>
+            </div>
+
+            {/* Per-event embedding counts */}
+            {Object.entries(apiStatus.events).map(([eid, ev]) => (
+              <div key={eid} className="flex items-center gap-3 text-sm">
+                <span className={`w-2 h-2 rounded-full ${ev.ok ? 'bg-green-500' : 'bg-yellow-500'}`} />
+                <span className="font-medium w-32 truncate">Event: {eid}</span>
+                <span className={ev.ok ? 'text-green-600' : 'text-yellow-600'}>
+                  {ev.ok
+                    ? (ev.total !== undefined ? `${ev.total} photos embedded ✓` : 'Data OK ✓')
+                    : `Not embedded — ${ev.error ?? 'no data'}`}
+                </span>
+              </div>
+            ))}
+
+            {/* MongoDB fix banner */}
+            {apiStatus.db && !apiStatus.db.ok && (
+              <div className="mt-3 p-3 rounded-lg bg-red-500/10 border border-red-500/30 space-y-2">
+                <div className="flex items-center gap-2 text-red-600 font-semibold text-sm">
+                  <AlertTriangle size={16} /> MongoDB Auth is Failing — Fix Required
+                </div>
+                <ol className="text-xs text-muted-foreground space-y-1 list-decimal list-inside">
+                  <li>Go to <strong>render.com</strong> → your <strong>deepface-api</strong> service</li>
+                  <li>Click <strong>Environment</strong> tab</li>
+                  <li>Find or add <code className="bg-muted px-1 rounded">MONGODB_URI</code></li>
+                  <li>Set it to your MongoDB Atlas connection string (found in Studio Settings)</li>
+                  <li>Save — Render will auto-redeploy</li>
+                  <li>Once redeployed, click <strong>Process Photos</strong> for each event</li>
+                </ol>
+                <a
+                  href="https://dashboard.render.com"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex items-center gap-1 text-xs text-primary underline"
+                >
+                  Open Render.com Dashboard <ExternalLink size={10} />
+                </a>
+              </div>
+            )}
+
+            {/* All good banner */}
+            {apiStatus.health?.ok && apiStatus.db?.ok && (
+              <div className="p-2 rounded-lg bg-green-500/10 border border-green-500/30 text-green-600 text-xs font-medium">
+                ✅ Everything looks good! If face matching still fails, click Process Photos for the event first.
+              </div>
+            )}
+          </div>
+        )}
+
+        {!apiStatus.showDetails && (
+          <p className="text-xs text-muted-foreground">
+            Click "Run Diagnostics" to check Python API health, MongoDB connection, and photo embedding status per event.
+          </p>
+        )}
       </div>
 
       {/* Events Section */}
