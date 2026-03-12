@@ -159,7 +159,7 @@ const FindPhotosPage: React.FC = () => {
         name: name.trim(),
         mobile: phone.trim(),
         event_id: selectedEvent.api_event_id,
-        threshold: '0.55',
+        threshold: '0.35',
         file_base64: fileBase64,
         file_name: selfieFile!.name,
         file_type: selfieFile!.type,

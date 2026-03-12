@@ -6,9 +6,9 @@ import shutil
 from pathlib import Path
 from typing import Optional, List
 
+import cv2
 import numpy as np
 import requests
-import face_recognition
 from fastapi import FastAPI, UploadFile, File, Form
 from fastapi.middleware.cors import CORSMiddleware
 from pymongo import MongoClient
@@ -22,9 +22,25 @@ GOOGLE_API_KEY = os.environ.get("GOOGLE_API_KEY", "")
 DB_NAME        = "deepface_db"
 COLLECTION     = "face_embeddings"
 
-# face_recognition distance threshold — lower = stricter
-# 0.45 is strict, 0.55 is standard, 0.65 is loose
-MATCH_DISTANCE = float(os.environ.get("MATCH_DISTANCE", "0.55"))
+# insightface cosine similarity threshold — higher = stricter
+# 0.3 = loose, 0.4 = standard, 0.5 = strict
+MATCH_THRESHOLD = float(os.environ.get("MATCH_THRESHOLD", "0.35"))
+
+# ─── InsightFace — lazy-load so health endpoint responds immediately ──────────
+_face_app = None
+
+def get_face_app():
+    global _face_app
+    if _face_app is None:
+        from insightface.app import FaceAnalysis
+        logger.info("Loading InsightFace model (buffalo_sc)...")
+        _face_app = FaceAnalysis(
+            name="buffalo_sc",                    # ~85 MB, fast, accurate
+            providers=["CPUExecutionProvider"],
+        )
+        _face_app.prepare(ctx_id=0, det_size=(320, 320))
+        logger.info("InsightFace model ready ✓")
+    return _face_app
 
 # ─── App ──────────────────────────────────────────────────────────────────────
 app = FastAPI(title="DeepFace API", version="2.0.0")
@@ -127,21 +143,28 @@ def download_file(download_url: str, dest: str):
 
 
 # ─── Face helpers ──────────────────────────────────────────────────────────────
-def get_encoding(image_path: str) -> Optional[List[float]]:
-    """Extract 128-dim face encoding. Returns None if no face found."""
+def get_embedding(image_path: str) -> Optional[List[float]]:
+    """Extract 512-dim ArcFace embedding. Returns None if no face found."""
     try:
-        img = face_recognition.load_image_file(image_path)
-        encodings = face_recognition.face_encodings(img)
-        if encodings:
-            return encodings[0].tolist()
+        img = cv2.imread(image_path)
+        if img is None:
+            return None
+        faces = get_face_app().get(img)
+        if faces:
+            return faces[0].embedding.tolist()
     except Exception as e:
         logger.debug(f"No face in {image_path}: {e}")
     return None
 
 
-def face_distance(a: List[float], b: List[float]) -> float:
-    """L2 distance between two face encodings. < 0.55 = same person."""
-    return float(np.linalg.norm(np.array(a, dtype=np.float32) - np.array(b, dtype=np.float32)))
+def cosine_similarity(a: List[float], b: List[float]) -> float:
+    """Cosine similarity between two ArcFace embeddings. > 0.35 = same person."""
+    va = np.array(a, dtype=np.float32)
+    vb = np.array(b, dtype=np.float32)
+    na, nb = np.linalg.norm(va), np.linalg.norm(vb)
+    if na == 0 or nb == 0:
+        return 0.0
+    return float(np.dot(va, vb) / (na * nb))
 
 
 # ─── Routes ───────────────────────────────────────────────────────────────────
@@ -262,9 +285,9 @@ async def process_drive_folder(data: dict):
                     for chunk in r.iter_content(65536):
                         fp.write(chunk)
 
-                encoding = get_encoding(dest)
+                embedding = get_embedding(dest)
 
-                if encoding is None:
+                if embedding is None:
                     logger.info(f"  → No face detected, skipping")
                     skipped += 1
                     continue
@@ -274,7 +297,7 @@ async def process_drive_folder(data: dict):
                     "filename":  f["name"],
                     "file_id":   f["id"],
                     "photo_url": f["photo_url"],
-                    "embedding": encoding,
+                    "embedding": embedding,
                 })
                 processed += 1
                 logger.info(f"  → Embedded ✓")
@@ -302,7 +325,7 @@ async def match_face(
     name:      str        = Form(...),
     mobile:    str        = Form(...),
     file:      UploadFile = File(...),
-    threshold: float      = Form(0.55),
+    threshold: float      = Form(0.35),
 ):
     """Match an uploaded selfie against all stored face embeddings for an event."""
     contents = await file.read()
@@ -313,9 +336,9 @@ async def match_face(
         with open(selfie_path, "wb") as f:
             f.write(contents)
 
-        # Get selfie encoding
-        selfie_enc = get_encoding(selfie_path)
-        if selfie_enc is None:
+        # Get selfie embedding
+        selfie_emb = get_embedding(selfie_path)
+        if selfie_emb is None:
             return {
                 "error": "No face detected in your selfie. Please use a clear, front-facing photo.",
                 "matched_photos": [],
@@ -335,24 +358,22 @@ async def match_face(
                 "matched_photos": [],
             }
 
-        # Compare using L2 distance — lower = more similar
-        # Default tolerance in face_recognition library is 0.6
-        dist_threshold = threshold  # use passed threshold as max distance
+        # Cosine similarity — higher = more similar
+        # ArcFace: > 0.35 is typically same person
         matched = []
         for doc in docs:
             stored = doc.get("embedding")
             if not stored:
                 continue
-            dist = face_distance(selfie_enc, stored)
-            if dist <= dist_threshold:
+            sim = cosine_similarity(selfie_emb, stored)
+            if sim >= threshold:
                 matched.append({
                     "filename":   doc.get("filename"),
                     "url":        doc.get("photo_url"),
-                    "similarity": round(max(0.0, 1.0 - dist), 4),
-                    "distance":   round(dist, 4),
+                    "similarity": round(sim, 4),
                 })
 
-        matched.sort(key=lambda x: x["distance"])
+        matched.sort(key=lambda x: x["similarity"], reverse=True)
 
         return {
             "success":        True,
@@ -376,7 +397,7 @@ async def debug_scores(
     event_id: str        = Form(...),
     file:     UploadFile = File(...),
 ):
-    """Returns distance scores for ALL photos in an event (for debugging threshold)."""
+    """Returns similarity scores for ALL photos in an event (for threshold tuning)."""
     contents = await file.read()
     tmpdir   = tempfile.mkdtemp()
     try:
@@ -384,8 +405,8 @@ async def debug_scores(
         with open(img_path, "wb") as f:
             f.write(contents)
 
-        selfie_enc = get_encoding(img_path)
-        if selfie_enc is None:
+        selfie_emb = get_embedding(img_path)
+        if selfie_emb is None:
             return {"error": "No face detected"}
 
         col, client = get_col()
@@ -396,15 +417,14 @@ async def debug_scores(
         for doc in docs:
             emb = doc.get("embedding")
             if emb:
-                dist = face_distance(selfie_enc, emb)
+                sim = cosine_similarity(selfie_emb, emb)
                 scores.append({
                     "filename":   doc.get("filename"),
-                    "distance":   round(dist, 4),
-                    "similarity": round(max(0.0, 1.0 - dist), 4),
+                    "similarity": round(sim, 4),
                     "url":        doc.get("photo_url"),
                 })
 
-        scores.sort(key=lambda x: x["distance"])
+        scores.sort(key=lambda x: x["similarity"], reverse=True)
         return {"event_id": event_id, "total": len(scores), "scores": scores}
     finally:
         shutil.rmtree(tmpdir, ignore_errors=True)
