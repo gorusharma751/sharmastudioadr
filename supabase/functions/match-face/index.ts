@@ -4,7 +4,7 @@
 // installed, so we suppress TS checking here. The Supabase CLI uses Deno's own
 // type checker when bundling/deploying.
 
-const PYTHON_API_URL = "https://deepface-api-43ft.onrender.com";
+const PYTHON_API_URL = "https://sharmastudioadr.onrender.com";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",

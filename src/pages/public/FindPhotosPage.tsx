@@ -33,7 +33,7 @@ const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL as string;
 const ANON_KEY    = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY as string;
 const EDGE_URL    = `${SUPABASE_URL}/functions/v1/match-face`;
 const EDGE_HEADERS = { apikey: ANON_KEY, Authorization: `Bearer ${ANON_KEY}` };
-const PYTHON_API  = 'https://deepface-api-43ft.onrender.com';
+const PYTHON_API  = 'https://sharmastudioadr.onrender.com';
 
 /**
  * Ping the Python API health endpoint directly from the browser using no-cors mode.

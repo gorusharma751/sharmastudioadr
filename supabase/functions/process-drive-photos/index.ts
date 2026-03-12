@@ -1,7 +1,7 @@
 // @ts-nocheck
 // Deno runtime globals are provided by Supabase Edge Runtime — not in VS Code TS config.
 
-const PYTHON_API_URL = "https://deepface-api-43ft.onrender.com";
+const PYTHON_API_URL = "https://sharmastudioadr.onrender.com";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
