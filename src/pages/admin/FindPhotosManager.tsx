@@ -3,6 +3,8 @@ import { motion } from 'framer-motion';
 import { Search, Phone, Clock, CheckCircle, RefreshCw, Play, ImageIcon, Trash2, Plus, Calendar, MapPin, Link2, Hash, Loader2, AlertTriangle, Wifi, Database, Image, ExternalLink, ChevronDown, ChevronUp } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
 import { supabase } from '@/integrations/supabase/client';
+
+const PYTHON_API = 'https://sharmastudioadr.onrender.com';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -102,32 +104,33 @@ const FindPhotosManager: React.FC = () => {
     setApiStatus(s => ({ ...s, checking: true, health: null, db: null, events: {} }));
     const event_ids = events.map(e => e.api_event_id);
     try {
-      const res = await supabase.functions.invoke('process-drive-photos', {
-        body: { action: 'status', event_ids },
-      });
-      if (res.error) throw res.error;
-      const d = res.data as any;
+      // Call Python API directly — no edge function proxy needed
+      const [healthRes, dbRes] = await Promise.all([
+        fetch(`${PYTHON_API}/health`, { signal: AbortSignal.timeout(12000) }).then(r => r.json()).catch(e => ({ error: String(e) })),
+        fetch(`${PYTHON_API}/test-db`, { signal: AbortSignal.timeout(15000) }).then(r => r.json()).catch(e => ({ error: String(e) })),
+      ]);
+
       const eventMap: ApiStatus['events'] = {};
-      if (d.events) {
-        for (const [eid, edata] of Object.entries(d.events as Record<string, any>)) {
-          const isOk = edata.ok && !edata.data?.error;
-          eventMap[eid] = {
-            ok: isOk,
-            total: edata.data?.total_photos ?? edata.data?.count ?? edata.data?.total,
-            error: edata.data?.error ?? edata.error,
-            data: edata.data,
-          };
-        }
-      }
-      const dbData = d.db?.data as any;
-      const dbOk = d.db?.ok && !dbData?.error;
+      await Promise.all(event_ids.map(async (eid) => {
+        const data = await fetch(`${PYTHON_API}/event-stats/${encodeURIComponent(eid)}`, { signal: AbortSignal.timeout(15000) })
+          .then(r => r.json()).catch(e => ({ error: String(e) }));
+        eventMap[eid] = {
+          ok: !data.error,
+          total: data.total_photos ?? data.count,
+          error: data.error,
+          data,
+        };
+      }));
+
+      const healthOk = healthRes?.status === 'ok';
+      const dbOk = dbRes?.status === 'connected';
       setApiStatus({
         checking: false,
-        health: { ok: d.health?.ok ?? false, error: d.health?.error },
+        health: { ok: healthOk, error: healthRes?.error },
         db: {
           ok: dbOk,
-          error: dbData?.error ? String(dbData.error).substring(0, 120) : d.db?.error,
-          data: dbData,
+          error: dbRes?.error ? String(dbRes.error).substring(0, 120) : undefined,
+          data: dbRes,
         },
         events: eventMap,
         showDetails: true,
@@ -170,45 +173,42 @@ const FindPhotosManager: React.FC = () => {
   };
 
   const processEventPhotos = async (event: Event) => {
-    if (!currentStudio?.id || !event.drive_folder_link) {
+    if (!event.drive_folder_link) {
       toast({ title: 'Error', description: 'Drive folder link not set for this event', variant: 'destructive' });
       return;
     }
     setProcessingEventId(event.id);
-    setEventStatuses(s => ({ ...s, [event.id]: '📸 Sending to Python API...' }));
+    setEventStatuses(s => ({ ...s, [event.id]: '⏳ Waking up AI server (may take ~30s)...' }));
 
     try {
-      const res = await supabase.functions.invoke('process-drive-photos', {
-        body: {
-          studio_id: currentStudio.id,
+      // Call the Python API directly — bypasses edge function timeout limits
+      const response = await fetch(`${PYTHON_API}/process-drive-folder`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
           folder_link: event.drive_folder_link,
           event_id: event.api_event_id,
-        },
+        }),
+        signal: AbortSignal.timeout(300000), // 5-minute timeout for large folders
       });
 
-      if (res.error) throw res.error;
+      const result = await response.json();
 
-      // Handle MongoDB auth error surfaced clearly
-      if (res.data?.error === 'MongoDB authentication failed') {
-        const msg = 'MongoDB auth failed. Fix MONGODB_URI in Render.com → your Python API service → Environment tab.';
-        setEventStatuses(s => ({ ...s, [event.id]: `❌ ${msg}` }));
-        toast({ title: '❌ Database Error', description: msg, variant: 'destructive' });
-        return;
-      }
-
-      if (res.data?.success) {
-        setEventStatuses(s => ({ ...s, [event.id]: '✅ Processing complete! Photos embedded.' }));
-        toast({ title: '🎉 Done!', description: `Photos processed for "${event.name}"` });
+      if (result?.success) {
+        const msg = `✅ Done! ${result.processed} photos embedded, ${result.skipped} skipped.`;
+        setEventStatuses(s => ({ ...s, [event.id]: msg }));
+        toast({ title: '🎉 Done!', description: `${result.processed} photos processed for "${event.name}"` });
       } else {
-        const errMsg = res.data?.data?.error || res.data?.error || res.data?.data?.detail || 'Unknown error';
-        const isMongoError = String(errMsg).toLowerCase().includes('auth') || String(errMsg).toLowerCase().includes('mongodb');
-        const hint = isMongoError ? ' → Fix MONGODB_URI in Render.com dashboard.' : '';
-        setEventStatuses(s => ({ ...s, [event.id]: `❌ ${String(errMsg).substring(0, 100)}${hint}` }));
-        toast({ title: 'Error', description: String(errMsg).substring(0, 200) + hint, variant: 'destructive' });
+        const errMsg = result?.error || `Server error (${response.status})`;
+        setEventStatuses(s => ({ ...s, [event.id]: `❌ ${String(errMsg).substring(0, 150)}` }));
+        toast({ title: 'Error', description: String(errMsg).substring(0, 200), variant: 'destructive' });
       }
     } catch (error: any) {
-      setEventStatuses(s => ({ ...s, [event.id]: `❌ Failed: ${error?.message}` }));
-      toast({ title: 'Error', description: 'Failed to process photos', variant: 'destructive' });
+      const msg = error?.name === 'TimeoutError'
+        ? 'Timed out after 5 minutes. The folder may be too large, or the server is still waking up. Try again in 30 seconds.'
+        : (error?.message || 'Failed to reach Python API');
+      setEventStatuses(s => ({ ...s, [event.id]: `❌ ${msg}` }));
+      toast({ title: 'Error', description: msg, variant: 'destructive' });
     } finally {
       setProcessingEventId(null);
     }
