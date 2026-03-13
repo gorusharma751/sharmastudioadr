@@ -256,7 +256,7 @@ const FindPhotosManager: React.FC = () => {
         setEventStatuses(s => ({ ...s, [event.id]: msg }));
         toast({ title: '🎉 Done!', description: `${result.processed} photos processed for "${event.name}"` });
       } else {
-        const errMsg = result?.error || `Server error (${response.status})`;
+        const errMsg = result?.error || 'Server error';
         setEventStatuses(s => ({ ...s, [event.id]: `❌ ${String(errMsg).substring(0, 150)}` }));
         toast({ title: 'Error', description: String(errMsg).substring(0, 200), variant: 'destructive' });
       }
