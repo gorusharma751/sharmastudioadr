@@ -3,6 +3,9 @@ import re
 import logging
 import tempfile
 import shutil
+import threading
+import time
+import uuid
 from pathlib import Path
 from typing import Optional, List, Dict
 
@@ -24,6 +27,10 @@ EMBEDDINGS_TABLE     = "face_embeddings"
 # insightface cosine similarity threshold — higher = stricter
 # 0.3 = loose, 0.4 = standard, 0.5 = strict
 MATCH_THRESHOLD = float(os.environ.get("MATCH_THRESHOLD", "0.35"))
+
+# In-memory background job tracker for long-running Drive processing.
+# This avoids browser/network timeouts on large events.
+PROCESS_JOBS: Dict[str, dict] = {}
 
 # ─── InsightFace — lazy-load so health endpoint responds immediately ──────────
 _face_app = None
@@ -269,18 +276,7 @@ def processing_status(event_id: str):
         return {"error": str(e)}
 
 
-@app.post("/process-drive-folder")
-async def process_drive_folder(data: dict):
-    """
-    Download all images from a public Google Drive folder,
-    generate face embeddings, and store them in MongoDB.
-    """
-    folder_link = data.get("folder_link", "")
-    event_id    = data.get("event_id", "")
-
-    if not folder_link or not event_id:
-        return {"error": "folder_link and event_id are required"}
-
+def _process_drive_folder_impl(folder_link: str, event_id: str) -> dict:
     # 1. Extract folder ID
     try:
         folder_id = extract_folder_id(folder_link)
@@ -316,8 +312,8 @@ async def process_drive_folder(data: dict):
         return {"error": f"Database error clearing old embeddings: {e}"}
 
     processed = 0
-    skipped   = 0
-    tmpdir    = tempfile.mkdtemp()
+    skipped = 0
+    tmpdir = tempfile.mkdtemp()
     batch: List[dict] = []
 
     try:
@@ -335,21 +331,20 @@ async def process_drive_folder(data: dict):
                 embedding = get_embedding(dest)
 
                 if embedding is None:
-                    logger.info(f"  → No face detected, skipping")
+                    logger.info("  → No face detected, skipping")
                     skipped += 1
                     continue
 
                 batch.append({
-                    "event_id":  event_id,
-                    "filename":  f["name"],
-                    "file_id":   f["id"],
+                    "event_id": event_id,
+                    "filename": f["name"],
+                    "file_id": f["id"],
                     "photo_url": f["photo_url"],
                     "embedding": embedding,
                 })
                 processed += 1
-                logger.info(f"  → Embedded ✓")
+                logger.info("  → Embedded ✓")
 
-                # Flush every 50 records to avoid oversized requests
                 if len(batch) >= 50:
                     sb_insert(EMBEDDINGS_TABLE, batch)
                     batch = []
@@ -358,7 +353,6 @@ async def process_drive_folder(data: dict):
                 logger.warning(f"  → Error: {e}")
                 skipped += 1
 
-        # Flush remaining records
         if batch:
             sb_insert(EMBEDDINGS_TABLE, batch)
 
@@ -366,12 +360,90 @@ async def process_drive_folder(data: dict):
         shutil.rmtree(tmpdir, ignore_errors=True)
 
     return {
-        "success":     True,
-        "event_id":    event_id,
+        "success": True,
+        "event_id": event_id,
         "total_files": len(files),
-        "processed":   processed,
-        "skipped":     skipped,
+        "processed": processed,
+        "skipped": skipped,
     }
+
+
+def _run_process_job(job_id: str, folder_link: str, event_id: str):
+    PROCESS_JOBS[job_id] = {
+        "job_id": job_id,
+        "status": "running",
+        "event_id": event_id,
+        "started_at": int(time.time()),
+    }
+    try:
+        result = _process_drive_folder_impl(folder_link, event_id)
+        if result.get("success"):
+            PROCESS_JOBS[job_id] = {
+                **PROCESS_JOBS[job_id],
+                "status": "completed",
+                "result": result,
+                "finished_at": int(time.time()),
+            }
+        else:
+            PROCESS_JOBS[job_id] = {
+                **PROCESS_JOBS[job_id],
+                "status": "failed",
+                "error": result.get("error", "Unknown error"),
+                "result": result,
+                "finished_at": int(time.time()),
+            }
+    except Exception as e:
+        logger.exception("Background processing job failed")
+        PROCESS_JOBS[job_id] = {
+            **PROCESS_JOBS.get(job_id, {"job_id": job_id, "event_id": event_id}),
+            "status": "failed",
+            "error": str(e),
+            "finished_at": int(time.time()),
+        }
+
+
+@app.post("/process-drive-folder")
+async def process_drive_folder(data: dict):
+    """Synchronous processing endpoint kept for backwards compatibility."""
+    folder_link = data.get("folder_link", "")
+    event_id = data.get("event_id", "")
+    if not folder_link or not event_id:
+        return {"error": "folder_link and event_id are required"}
+    return _process_drive_folder_impl(folder_link, event_id)
+
+
+@app.post("/process-drive-folder/start")
+async def process_drive_folder_start(data: dict):
+    """Start background processing and return job_id immediately."""
+    folder_link = data.get("folder_link", "")
+    event_id = data.get("event_id", "")
+    if not folder_link or not event_id:
+        return {"error": "folder_link and event_id are required"}
+
+    job_id = str(uuid.uuid4())
+    PROCESS_JOBS[job_id] = {
+        "job_id": job_id,
+        "status": "queued",
+        "event_id": event_id,
+        "created_at": int(time.time()),
+    }
+
+    t = threading.Thread(
+        target=_run_process_job,
+        args=(job_id, folder_link, event_id),
+        daemon=True,
+    )
+    t.start()
+
+    return {"success": True, "job_id": job_id, "status": "queued", "event_id": event_id}
+
+
+@app.get("/process-drive-folder/status/{job_id}")
+def process_drive_folder_status(job_id: str):
+    job = PROCESS_JOBS.get(job_id)
+    if not job:
+        return {"error": "job not found", "job_id": job_id}
+    return job
 
 
 @app.post("/match")

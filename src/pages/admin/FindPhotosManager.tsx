@@ -194,70 +194,72 @@ const FindPhotosManager: React.FC = () => {
       return;
     }
     setProcessingEventId(event.id);
-    setEventStatuses(s => ({ ...s, [event.id]: '⏳ Sending request to AI server (first run may take 1-2 minutes)...' }));
+    setEventStatuses(s => ({ ...s, [event.id]: '⏳ Starting processing job...' }));
 
     try {
-      let result: any = null;
-      let lastErr = '';
-      for (let attempt = 1; attempt <= 3; attempt += 1) {
-        try {
-          setEventStatuses(s => ({ ...s, [event.id]: `📸 Processing photos (attempt ${attempt}/3)...` }));
+      const startRes = await fetch(`${PYTHON_API}/process-drive-folder/start`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          folder_link: event.drive_folder_link,
+          event_id: event.api_event_id,
+        }),
+        signal: AbortSignal.timeout(90000),
+      });
 
-          const response = await fetch(`${PYTHON_API}/process-drive-folder`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              folder_link: event.drive_folder_link,
-              event_id: event.api_event_id,
-            }),
-            signal: AbortSignal.timeout(600000), // up to 10 minutes for large folders
-          });
+      const startText = await startRes.text();
+      let startData: any = {};
+      try {
+        startData = JSON.parse(startText);
+      } catch {
+        startData = { error: startText || `Server error (${startRes.status})` };
+      }
 
-          const text = await response.text();
-          try {
-            result = JSON.parse(text);
-          } catch {
-            result = { error: text || `Server error (${response.status})` };
-          }
+      if (!startRes.ok || !startData?.job_id) {
+        const msg = startData?.error || `Failed to start job (${startRes.status})`;
+        throw new Error(msg);
+      }
 
-          if (!response.ok && !result?.error) {
-            result = { error: `Server error (${response.status})` };
-          }
+      const jobId = startData.job_id as string;
+      const maxPollMs = 15 * 60 * 1000; // 15 minutes
+      const pollEveryMs = 5000;
+      const startAt = Date.now();
+      let finalResult: any = null;
 
-          // Retry on transient server issues like 502/503/504.
-          if (!response.ok && [502, 503, 504].includes(response.status) && attempt < 3) {
-            lastErr = result?.error || `Transient server error (${response.status})`;
-            await new Promise(resolve => setTimeout(resolve, 12000));
-            continue;
-          }
+      while (Date.now() - startAt < maxPollMs) {
+        setEventStatuses(s => ({ ...s, [event.id]: '📸 Processing photos in background. Please wait...' }));
 
+        const statusReq = await fetchJsonWithTimeout(`${PYTHON_API}/process-drive-folder/status/${jobId}`, 30000);
+        const job = statusReq?.data || {};
+
+        if (job.status === 'completed') {
+          finalResult = job.result || { success: true };
           break;
-        } catch (err: any) {
-          lastErr = err?.message || String(err);
-          if (attempt < 3) {
-            setEventStatuses(s => ({ ...s, [event.id]: `🔁 Network retry ${attempt}/2...` }));
-            await new Promise(resolve => setTimeout(resolve, 12000));
-          }
         }
+
+        if (job.status === 'failed') {
+          const err = job.error || job.result?.error || 'Background job failed';
+          throw new Error(String(err));
+        }
+
+        await new Promise(resolve => setTimeout(resolve, pollEveryMs));
       }
 
-      if (!result) {
-        throw new Error(lastErr || 'Failed to reach Python API');
+      if (!finalResult?.success) {
+        throw new Error('Processing timed out before completion.');
       }
 
-      if (result?.success) {
-        const msg = `✅ Done! ${result.processed} photos embedded, ${result.skipped} skipped.`;
+      if (finalResult?.success) {
+        const msg = `✅ Done! ${finalResult.processed} photos embedded, ${finalResult.skipped} skipped.`;
         setEventStatuses(s => ({ ...s, [event.id]: msg }));
-        toast({ title: '🎉 Done!', description: `${result.processed} photos processed for "${event.name}"` });
+        toast({ title: '🎉 Done!', description: `${finalResult.processed} photos processed for "${event.name}"` });
       } else {
-        const errMsg = result?.error || 'Server error';
+        const errMsg = finalResult?.error || 'Server error';
         setEventStatuses(s => ({ ...s, [event.id]: `❌ ${String(errMsg).substring(0, 150)}` }));
         toast({ title: 'Error', description: String(errMsg).substring(0, 200), variant: 'destructive' });
       }
     } catch (error: any) {
-      const msg = error?.name === 'TimeoutError'
-        ? 'Timed out while processing. Try once more after 30-60 seconds.'
-        : (error?.message || 'Failed to reach Python API');
+      const msg = error?.message || 'Failed to process photos';
       setEventStatuses(s => ({ ...s, [event.id]: `❌ ${msg}` }));
       toast({ title: 'Error', description: msg, variant: 'destructive' });
     } finally {
