@@ -204,14 +204,7 @@ const FindPhotosManager: React.FC = () => {
       };
 
       let finalResult: any = null;
-
-      // Prefer async job mode when available.
-      const startReq = await fetchJsonWithTimeout(`${PYTHON_API}/process-drive-folder/start`, 90000);
-      const startData = startReq?.data || {};
-      const asyncSupported = !!(startReq?.ok && startData?.job_id);
-
-      if (asyncSupported) {
-        const jobId = startData.job_id as string;
+      const pollJobUntilDone = async (jobId: string): Promise<any> => {
         const maxPollMs = 15 * 60 * 1000;
         const pollEveryMs = 5000;
         const startAt = Date.now();
@@ -223,8 +216,7 @@ const FindPhotosManager: React.FC = () => {
           const job = statusReq?.data || {};
 
           if (job.status === 'completed') {
-            finalResult = job.result || { success: true };
-            break;
+            return job.result || { success: true };
           }
 
           if (job.status === 'failed') {
@@ -235,9 +227,16 @@ const FindPhotosManager: React.FC = () => {
           await new Promise(resolve => setTimeout(resolve, pollEveryMs));
         }
 
-        if (!finalResult?.success) {
-          throw new Error('Processing timed out before completion.');
-        }
+        throw new Error('Processing timed out before completion.');
+      };
+
+      // Prefer async job mode when available.
+      const startReq = await fetchJsonWithTimeout(`${PYTHON_API}/process-drive-folder/start`, 90000);
+      const startData = startReq?.data || {};
+      const asyncSupported = !!(startReq?.ok && startData?.job_id);
+
+      if (asyncSupported) {
+        finalResult = await pollJobUntilDone(startData.job_id as string);
       } else {
         // Fallback to sync endpoint for older backend deploys.
         setEventStatuses(s => ({ ...s, [event.id]: '📸 Processing photos (sync mode). Please wait...' }));
@@ -259,12 +258,23 @@ const FindPhotosManager: React.FC = () => {
         if (!syncReq.ok && !finalResult?.error) {
           finalResult = { error: `Server error (${syncReq.status})` };
         }
+
+        // Newer backend may queue a background job on /process-drive-folder.
+        // If queued, wait for actual completion before showing success/failure.
+        if (finalResult?.queued && finalResult?.job_id) {
+          finalResult = await pollJobUntilDone(String(finalResult.job_id));
+        }
       }
 
-      if (finalResult?.success) {
+      if (finalResult?.success && typeof finalResult?.processed === 'number') {
         const msg = `✅ Done! ${finalResult.processed} photos embedded, ${finalResult.skipped} skipped.`;
         setEventStatuses(s => ({ ...s, [event.id]: msg }));
         toast({ title: '🎉 Done!', description: `${finalResult.processed} photos processed for "${event.name}"` });
+      } else if (finalResult?.success) {
+        // Defensive fallback if backend returned success without counts.
+        const msg = 'Processing finished, but counts were unavailable. Run Diagnostics to confirm embedded photo count.';
+        setEventStatuses(s => ({ ...s, [event.id]: `⚠️ ${msg}` }));
+        toast({ title: 'Completed with warning', description: msg });
       } else {
         const errMsg = finalResult?.error || 'Server error';
         setEventStatuses(s => ({ ...s, [event.id]: `❌ ${String(errMsg).substring(0, 150)}` }));
