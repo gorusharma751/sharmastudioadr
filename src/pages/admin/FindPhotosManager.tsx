@@ -18,26 +18,19 @@ import {
 
 const PYTHON_API = 'https://sharmastudioadr.onrender.com';
 
-async function pingPythonHealth(): Promise<boolean> {
+async function fetchJsonWithTimeout(url: string, timeoutMs: number): Promise<any> {
   try {
-    const res = await fetch(`${PYTHON_API}/health`, {
-      method: 'GET',
-      signal: AbortSignal.timeout(10000),
-    });
-    return res.ok;
-  } catch {
-    return false;
+    const res = await fetch(url, { signal: AbortSignal.timeout(timeoutMs) });
+    const text = await res.text();
+    try {
+      const data = JSON.parse(text);
+      return { ok: res.ok, status: res.status, data };
+    } catch {
+      return { ok: res.ok, status: res.status, data: { error: text || `HTTP ${res.status}` } };
+    }
+  } catch (e: any) {
+    return { ok: false, status: 0, data: { error: String(e?.message || e) } };
   }
-}
-
-async function waitForPythonServer(maxWakeSecs = 180): Promise<boolean> {
-  const startedAt = Date.now();
-  while ((Date.now() - startedAt) / 1000 < maxWakeSecs) {
-    const healthy = await pingPythonHealth();
-    if (healthy) return true;
-    await new Promise(resolve => setTimeout(resolve, 5000));
-  }
-  return false;
 }
 
 interface Event {
@@ -126,16 +119,17 @@ const FindPhotosManager: React.FC = () => {
     setApiStatus(s => ({ ...s, checking: true, health: null, db: null, events: {} }));
     const event_ids = events.map(e => e.api_event_id);
     try {
-      // Call Python API directly — no edge function proxy needed
-      const [healthRes, dbRes] = await Promise.all([
-        fetch(`${PYTHON_API}/health`, { signal: AbortSignal.timeout(12000) }).then(r => r.json()).catch(e => ({ error: String(e) })),
-        fetch(`${PYTHON_API}/test-db`, { signal: AbortSignal.timeout(15000) }).then(r => r.json()).catch(e => ({ error: String(e) })),
-      ]);
+      // Use longer timeouts to avoid false negatives when Render wakes up.
+      const healthReq = await fetchJsonWithTimeout(`${PYTHON_API}/health`, 60000);
+      const dbReq = await fetchJsonWithTimeout(`${PYTHON_API}/test-db`, 60000);
+
+      const healthRes = healthReq?.data || {};
+      const dbRes = dbReq?.data || {};
 
       const eventMap: ApiStatus['events'] = {};
       await Promise.all(event_ids.map(async (eid) => {
-        const data = await fetch(`${PYTHON_API}/event-stats/${encodeURIComponent(eid)}`, { signal: AbortSignal.timeout(15000) })
-          .then(r => r.json()).catch(e => ({ error: String(e) }));
+        const req = await fetchJsonWithTimeout(`${PYTHON_API}/event-stats/${encodeURIComponent(eid)}`, 45000);
+        const data = req?.data || { error: 'No response' };
         eventMap[eid] = {
           ok: !data.error,
           total: data.total_photos ?? data.count,
@@ -200,23 +194,15 @@ const FindPhotosManager: React.FC = () => {
       return;
     }
     setProcessingEventId(event.id);
-    setEventStatuses(s => ({ ...s, [event.id]: '⏳ Waking up AI server (may take ~30s)...' }));
+    setEventStatuses(s => ({ ...s, [event.id]: '⏳ Sending request to AI server (first run may take 1-2 minutes)...' }));
 
     try {
-      const healthy = await waitForPythonServer(180);
-      if (!healthy) {
-        const msg = 'AI server did not wake up in time. Wait 30 seconds and try again.';
-        setEventStatuses(s => ({ ...s, [event.id]: `❌ ${msg}` }));
-        toast({ title: 'Error', description: msg, variant: 'destructive' });
-        return;
-      }
-
-      setEventStatuses(s => ({ ...s, [event.id]: '📸 Processing photos. Please wait...' }));
-
       let result: any = null;
       let lastErr = '';
-      for (let attempt = 1; attempt <= 2; attempt += 1) {
+      for (let attempt = 1; attempt <= 3; attempt += 1) {
         try {
+          setEventStatuses(s => ({ ...s, [event.id]: `📸 Processing photos (attempt ${attempt}/3)...` }));
+
           const response = await fetch(`${PYTHON_API}/process-drive-folder`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -224,7 +210,7 @@ const FindPhotosManager: React.FC = () => {
               folder_link: event.drive_folder_link,
               event_id: event.api_event_id,
             }),
-            signal: AbortSignal.timeout(420000), // 7 minutes for larger folders
+            signal: AbortSignal.timeout(600000), // up to 10 minutes for large folders
           });
 
           const text = await response.text();
@@ -237,12 +223,20 @@ const FindPhotosManager: React.FC = () => {
           if (!response.ok && !result?.error) {
             result = { error: `Server error (${response.status})` };
           }
+
+          // Retry on transient server issues like 502/503/504.
+          if (!response.ok && [502, 503, 504].includes(response.status) && attempt < 3) {
+            lastErr = result?.error || `Transient server error (${response.status})`;
+            await new Promise(resolve => setTimeout(resolve, 12000));
+            continue;
+          }
+
           break;
         } catch (err: any) {
           lastErr = err?.message || String(err);
-          if (attempt < 2) {
-            setEventStatuses(s => ({ ...s, [event.id]: `🔁 Network retry ${attempt}/1...` }));
-            await new Promise(resolve => setTimeout(resolve, 8000));
+          if (attempt < 3) {
+            setEventStatuses(s => ({ ...s, [event.id]: `🔁 Network retry ${attempt}/2...` }));
+            await new Promise(resolve => setTimeout(resolve, 12000));
           }
         }
       }
@@ -262,7 +256,7 @@ const FindPhotosManager: React.FC = () => {
       }
     } catch (error: any) {
       const msg = error?.name === 'TimeoutError'
-        ? 'Timed out. Server may still be waking up — wait 30 seconds and try again.'
+        ? 'Timed out while processing. Try once more after 30-60 seconds.'
         : (error?.message || 'Failed to reach Python API');
       setEventStatuses(s => ({ ...s, [event.id]: `❌ ${msg}` }));
       toast({ title: 'Error', description: msg, variant: 'destructive' });
@@ -350,13 +344,13 @@ const FindPhotosManager: React.FC = () => {
               </span>
             </div>
 
-            {/* Row: MongoDB */}
+            {/* Row: Database */}
             <div className="flex items-start gap-3 text-sm">
               <span className={`w-2 h-2 rounded-full mt-1 shrink-0 ${apiStatus.db?.ok ? 'bg-green-500' : 'bg-red-500'}`} />
-              <span className="font-medium w-32 shrink-0">MongoDB Atlas</span>
+              <span className="font-medium w-32 shrink-0">Database</span>
               <div>
                 <span className={apiStatus.db?.ok ? 'text-green-600' : 'text-red-600'}>
-                  {apiStatus.db?.ok ? 'Connected ✓' : 'Auth Failed ✗'}
+                  {apiStatus.db?.ok ? 'Connected ✓' : 'Unavailable ✗'}
                 </span>
                 {!apiStatus.db?.ok && apiStatus.db?.error && (
                   <p className="text-xs text-muted-foreground mt-0.5 max-w-md">{apiStatus.db.error}</p>
@@ -377,17 +371,17 @@ const FindPhotosManager: React.FC = () => {
               </div>
             ))}
 
-            {/* MongoDB fix banner */}
+            {/* DB fix banner */}
             {apiStatus.db && !apiStatus.db.ok && (
               <div className="mt-3 p-3 rounded-lg bg-red-500/10 border border-red-500/30 space-y-2">
                 <div className="flex items-center gap-2 text-red-600 font-semibold text-sm">
-                  <AlertTriangle size={16} /> MongoDB Auth is Failing — Fix Required
+                  <AlertTriangle size={16} /> Database Check Failed — Action Required
                 </div>
                 <ol className="text-xs text-muted-foreground space-y-1 list-decimal list-inside">
-                  <li>Go to <strong>render.com</strong> → your <strong>deepface-api</strong> service</li>
+                  <li>Go to <strong>render.com</strong> → your <strong>sharmastudioadr</strong> service</li>
                   <li>Click <strong>Environment</strong> tab</li>
-                  <li>Find or add <code className="bg-muted px-1 rounded">MONGODB_URI</code></li>
-                  <li>Set it to your MongoDB Atlas connection string (found in Studio Settings)</li>
+                  <li>Verify <code className="bg-muted px-1 rounded">SUPABASE_URL</code> and <code className="bg-muted px-1 rounded">SUPABASE_SERVICE_KEY</code></li>
+                  <li>Save and redeploy if you changed env variables</li>
                   <li>Save — Render will auto-redeploy</li>
                   <li>Once redeployed, click <strong>Process Photos</strong> for each event</li>
                 </ol>
@@ -413,7 +407,7 @@ const FindPhotosManager: React.FC = () => {
 
         {!apiStatus.showDetails && (
           <p className="text-xs text-muted-foreground">
-            Click "Run Diagnostics" to check Python API health, MongoDB connection, and photo embedding status per event.
+            Click "Run Diagnostics" to check Python API health, database connection, and photo embedding status per event.
           </p>
         )}
       </div>
