@@ -416,23 +416,24 @@ def _run_process_job(job_id: str, folder_link: str, event_id: str):
         }
 
 
-@app.post("/process-drive-folder")
-async def process_drive_folder(data: dict):
-    """Synchronous processing endpoint kept for backwards compatibility."""
-    folder_link = data.get("folder_link", "")
-    event_id = data.get("event_id", "")
-    if not folder_link or not event_id:
-        return {"error": "folder_link and event_id are required"}
-    return _process_drive_folder_impl(folder_link, event_id)
+def _find_active_job_for_event(event_id: str) -> Optional[str]:
+    for jid, job in PROCESS_JOBS.items():
+        if job.get("event_id") == event_id and job.get("status") in {"queued", "running"}:
+            return jid
+    return None
 
 
-@app.post("/process-drive-folder/start")
-async def process_drive_folder_start(data: dict):
-    """Start background processing and return job_id immediately."""
-    folder_link = data.get("folder_link", "")
-    event_id = data.get("event_id", "")
-    if not folder_link or not event_id:
-        return {"error": "folder_link and event_id are required"}
+def _start_process_job(folder_link: str, event_id: str) -> dict:
+    active_job_id = _find_active_job_for_event(event_id)
+    if active_job_id:
+        return {
+            "success": True,
+            "queued": True,
+            "job_id": active_job_id,
+            "status": PROCESS_JOBS.get(active_job_id, {}).get("status", "running"),
+            "event_id": event_id,
+            "message": "A processing job is already running for this event.",
+        }
 
     job_id = str(uuid.uuid4())
     PROCESS_JOBS[job_id] = {
@@ -449,7 +450,45 @@ async def process_drive_folder_start(data: dict):
     )
     t.start()
 
-    return {"success": True, "job_id": job_id, "status": "queued", "event_id": event_id}
+    return {
+        "success": True,
+        "queued": True,
+        "job_id": job_id,
+        "status": "queued",
+        "event_id": event_id,
+        "message": "Processing started in background.",
+    }
+
+
+@app.post("/process-drive-folder")
+async def process_drive_folder(data: dict):
+    """
+    Backwards-compatible endpoint.
+    Default behavior now queues a background job to avoid gateway timeouts.
+    Send {"sync": true} only when strict synchronous behavior is required.
+    """
+    folder_link = data.get("folder_link", "")
+    event_id = data.get("event_id", "")
+    sync_mode = bool(data.get("sync", False))
+
+    if not folder_link or not event_id:
+        return {"error": "folder_link and event_id are required"}
+
+    if sync_mode:
+        return _process_drive_folder_impl(folder_link, event_id)
+
+    return _start_process_job(folder_link, event_id)
+
+
+@app.post("/process-drive-folder/start")
+async def process_drive_folder_start(data: dict):
+    """Start background processing and return job_id immediately."""
+    folder_link = data.get("folder_link", "")
+    event_id = data.get("event_id", "")
+    if not folder_link or not event_id:
+        return {"error": "folder_link and event_id are required"}
+
+    return _start_process_job(folder_link, event_id)
 
 
 @app.get("/process-drive-folder/status/{job_id}")
