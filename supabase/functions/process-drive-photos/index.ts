@@ -89,14 +89,14 @@ Deno.serve(async (req: Request) => {
     let responseData: unknown;
     try { responseData = JSON.parse(responseText); } catch { responseData = { raw_response: responseText.substring(0, 500) }; }
 
-    // Surface MongoDB auth errors clearly
+    // Surface backend auth/config errors clearly
     const dataObj = responseData as Record<string, unknown>;
     if (dataObj?.error && String(dataObj.error).includes("bad auth")) {
       return new Response(
         JSON.stringify({
           success: false,
-          error: "MongoDB authentication failed",
-          detail: "The Python API cannot connect to its database. Update the MONGODB_URI environment variable in your Render.com service dashboard.",
+          error: "Database authentication failed",
+          detail: "The Python API cannot connect to its database. Verify SUPABASE_URL and SUPABASE_SERVICE_KEY in your Render.com service dashboard.",
           raw: dataObj.error,
         }),
         { status: 503, headers: { ...corsHeaders, "Content-Type": "application/json" } }
