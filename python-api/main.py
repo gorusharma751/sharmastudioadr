@@ -359,6 +359,20 @@ def _process_drive_folder_impl(folder_link: str, event_id: str) -> dict:
     finally:
         shutil.rmtree(tmpdir, ignore_errors=True)
 
+    if processed == 0:
+        return {
+            "success": False,
+            "event_id": event_id,
+            "total_files": len(files),
+            "processed": processed,
+            "skipped": skipped,
+            "error": (
+                "No face embeddings were created. "
+                "Possible reasons: photos are not readable by OpenCV, faces are not clearly visible, "
+                "or Google Drive media download is failing."
+            ),
+        }
+
     return {
         "success": True,
         "event_id": event_id,
