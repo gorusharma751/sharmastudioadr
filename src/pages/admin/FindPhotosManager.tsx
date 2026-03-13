@@ -17,6 +17,7 @@ import {
 } from '@/components/ui/dialog';
 
 const PYTHON_API = 'https://sharmastudioadr.onrender.com';
+const ADMIN_FLOW_VERSION = 'v2026.03.13-compat';
 
 async function fetchJsonWithTimeout(url: string, timeoutMs: number): Promise<any> {
   try {
@@ -197,56 +198,67 @@ const FindPhotosManager: React.FC = () => {
     setEventStatuses(s => ({ ...s, [event.id]: '⏳ Starting processing job...' }));
 
     try {
-      const startRes = await fetch(`${PYTHON_API}/process-drive-folder/start`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          folder_link: event.drive_folder_link,
-          event_id: event.api_event_id,
-        }),
-        signal: AbortSignal.timeout(90000),
-      });
+      const payload = {
+        folder_link: event.drive_folder_link,
+        event_id: event.api_event_id,
+      };
 
-      const startText = await startRes.text();
-      let startData: any = {};
-      try {
-        startData = JSON.parse(startText);
-      } catch {
-        startData = { error: startText || `Server error (${startRes.status})` };
-      }
-
-      if (!startRes.ok || !startData?.job_id) {
-        const msg = startData?.error || `Failed to start job (${startRes.status})`;
-        throw new Error(msg);
-      }
-
-      const jobId = startData.job_id as string;
-      const maxPollMs = 15 * 60 * 1000; // 15 minutes
-      const pollEveryMs = 5000;
-      const startAt = Date.now();
       let finalResult: any = null;
 
-      while (Date.now() - startAt < maxPollMs) {
-        setEventStatuses(s => ({ ...s, [event.id]: '📸 Processing photos in background. Please wait...' }));
+      // Prefer async job mode when available.
+      const startReq = await fetchJsonWithTimeout(`${PYTHON_API}/process-drive-folder/start`, 90000);
+      const startData = startReq?.data || {};
+      const asyncSupported = !!(startReq?.ok && startData?.job_id);
 
-        const statusReq = await fetchJsonWithTimeout(`${PYTHON_API}/process-drive-folder/status/${jobId}`, 30000);
-        const job = statusReq?.data || {};
+      if (asyncSupported) {
+        const jobId = startData.job_id as string;
+        const maxPollMs = 15 * 60 * 1000;
+        const pollEveryMs = 5000;
+        const startAt = Date.now();
 
-        if (job.status === 'completed') {
-          finalResult = job.result || { success: true };
-          break;
+        while (Date.now() - startAt < maxPollMs) {
+          setEventStatuses(s => ({ ...s, [event.id]: '📸 Processing photos in background. Please wait...' }));
+
+          const statusReq = await fetchJsonWithTimeout(`${PYTHON_API}/process-drive-folder/status/${jobId}`, 30000);
+          const job = statusReq?.data || {};
+
+          if (job.status === 'completed') {
+            finalResult = job.result || { success: true };
+            break;
+          }
+
+          if (job.status === 'failed') {
+            const err = job.error || job.result?.error || 'Background job failed';
+            throw new Error(String(err));
+          }
+
+          await new Promise(resolve => setTimeout(resolve, pollEveryMs));
         }
 
-        if (job.status === 'failed') {
-          const err = job.error || job.result?.error || 'Background job failed';
-          throw new Error(String(err));
+        if (!finalResult?.success) {
+          throw new Error('Processing timed out before completion.');
+        }
+      } else {
+        // Fallback to sync endpoint for older backend deploys.
+        setEventStatuses(s => ({ ...s, [event.id]: '📸 Processing photos (sync mode). Please wait...' }));
+
+        const syncReq = await fetch(`${PYTHON_API}/process-drive-folder`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload),
+          signal: AbortSignal.timeout(600000),
+        });
+
+        const syncText = await syncReq.text();
+        try {
+          finalResult = JSON.parse(syncText);
+        } catch {
+          finalResult = { error: syncText || `Server error (${syncReq.status})` };
         }
 
-        await new Promise(resolve => setTimeout(resolve, pollEveryMs));
-      }
-
-      if (!finalResult?.success) {
-        throw new Error('Processing timed out before completion.');
+        if (!syncReq.ok && !finalResult?.error) {
+          finalResult = { error: `Server error (${syncReq.status})` };
+        }
       }
 
       if (finalResult?.success) {
@@ -311,6 +323,7 @@ const FindPhotosManager: React.FC = () => {
         <div>
           <h1 className="text-2xl font-bold">AI Find Photos</h1>
           <p className="text-muted-foreground">Manage events, process photos & handle search requests</p>
+          <p className="text-[11px] text-muted-foreground/80 mt-1">Admin flow {ADMIN_FLOW_VERSION}</p>
         </div>
         <Button onClick={() => { fetchEvents(); fetchRequests(); }} variant="outline" size="sm">
           <RefreshCw size={16} className="mr-2" /> Refresh
