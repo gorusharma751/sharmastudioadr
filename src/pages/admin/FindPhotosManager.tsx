@@ -16,7 +16,7 @@ import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger,
 } from '@/components/ui/dialog';
 
-const PYTHON_API = 'https://sharmastudioadr-production.up.railway.app';
+const PYTHON_API = import.meta.env.VITE_PYTHON_API_URL || 'https://sharmastudioadr-production.up.railway.app';
 const ADMIN_FLOW_VERSION = 'v2026.03.13-compat';
 
 async function fetchJsonWithTimeout(url: string, timeoutMs: number): Promise<any> {
