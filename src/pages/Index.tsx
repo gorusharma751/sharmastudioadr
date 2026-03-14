@@ -20,6 +20,7 @@ const Index: React.FC = () => {
         showAuth={true}
         onAuthClick={() => navigate("/auth")}
       />
+      <HeroSection />
       <ServicesSection />
       <PortfolioSection />
       <BookingSection studioId={studio?.id || "demo"} />
