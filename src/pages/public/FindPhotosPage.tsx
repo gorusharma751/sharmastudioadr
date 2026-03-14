@@ -30,7 +30,7 @@ interface MatchedPhoto {
 type ProcessingStage = 'waking' | 'matching';
 
 // Call the Python API directly — it has CORS enabled, no edge proxy needed
-const PYTHON_API  = 'https://sharmastudioadr.onrender.com';
+const PYTHON_API = import.meta.env.VITE_PYTHON_API_URL || 'https://sharmastudioadr-production.up.railway.app';
 
 /**
  * Ping the Python API health endpoint directly from the browser using no-cors mode.
