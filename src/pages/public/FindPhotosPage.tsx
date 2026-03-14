@@ -39,12 +39,21 @@ const PYTHON_API = import.meta.env.VITE_PYTHON_API_URL || 'https://sharmastudioa
  */
 async function pingPythonHealth(): Promise<boolean> {
   try {
-    await fetch(`${PYTHON_API}/health`, {
+    const res = await fetch(`${PYTHON_API}/health`, {
       method: 'GET',
-      mode: 'no-cors',
       signal: AbortSignal.timeout(9000),
     });
-    return true; // opaque response = server is up
+    const text = await res.text();
+    const lower = text.trim().toLowerCase();
+    if (lower.startsWith('<!doctype html') || lower.startsWith('<html')) {
+      return false;
+    }
+    try {
+      const data = JSON.parse(text);
+      return res.ok && data?.status === 'ok';
+    } catch {
+      return false;
+    }
   } catch {
     return false;
   }

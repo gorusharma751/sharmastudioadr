@@ -23,11 +23,26 @@ async function fetchJsonWithTimeout(url: string, timeoutMs: number): Promise<any
   try {
     const res = await fetch(url, { signal: AbortSignal.timeout(timeoutMs) });
     const text = await res.text();
+
+    // If HTML is returned, the configured API URL likely points to the frontend app,
+    // not the Python backend service.
+    const lower = text.trim().toLowerCase();
+    const looksLikeHtml = lower.startsWith('<!doctype html') || lower.startsWith('<html');
+    if (looksLikeHtml) {
+      return {
+        ok: false,
+        status: res.status,
+        data: {
+          error: 'Configured API URL is pointing to a web page, not the Python API. Set VITE_PYTHON_API_URL to your Railway Python service URL.',
+        },
+      };
+    }
+
     try {
       const data = JSON.parse(text);
       return { ok: res.ok, status: res.status, data };
     } catch {
-      return { ok: res.ok, status: res.status, data: { error: text || `HTTP ${res.status}` } };
+      return { ok: res.ok, status: res.status, data: { error: (text || `HTTP ${res.status}`).substring(0, 240) } };
     }
   } catch (e: any) {
     return { ok: false, status: 0, data: { error: String(e?.message || e) } };
@@ -143,7 +158,7 @@ const FindPhotosManager: React.FC = () => {
       const dbOk = dbRes?.status === 'connected';
       setApiStatus({
         checking: false,
-        health: { ok: healthOk, error: healthRes?.error },
+        health: { ok: healthOk, error: healthRes?.error ? String(healthRes.error).substring(0, 140) : undefined },
         db: {
           ok: dbOk,
           error: dbRes?.error ? String(dbRes.error).substring(0, 120) : undefined,
@@ -403,20 +418,20 @@ const FindPhotosManager: React.FC = () => {
                   <AlertTriangle size={16} /> Database Check Failed — Action Required
                 </div>
                 <ol className="text-xs text-muted-foreground space-y-1 list-decimal list-inside">
-                  <li>Go to <strong>render.com</strong> → your <strong>sharmastudioadr</strong> service</li>
-                  <li>Click <strong>Environment</strong> tab</li>
+                  <li>Open your backend host dashboard (Railway/Render) for the Python API service</li>
+                  <li>Open service <strong>Variables / Environment</strong></li>
                   <li>Verify <code className="bg-muted px-1 rounded">SUPABASE_URL</code> and <code className="bg-muted px-1 rounded">SUPABASE_SERVICE_KEY</code></li>
-                  <li>Save and redeploy if you changed env variables</li>
-                  <li>Save — Render will auto-redeploy</li>
+                  <li>Ensure frontend <code className="bg-muted px-1 rounded">VITE_PYTHON_API_URL</code> points to the Python API service URL (not the website URL)</li>
+                  <li>Save and redeploy after changing variables</li>
                   <li>Once redeployed, click <strong>Process Photos</strong> for each event</li>
                 </ol>
                 <a
-                  href="https://dashboard.render.com"
+                  href="https://railway.app/dashboard"
                   target="_blank"
                   rel="noopener noreferrer"
                   className="inline-flex items-center gap-1 text-xs text-primary underline"
                 >
-                  Open Render.com Dashboard <ExternalLink size={10} />
+                  Open Railway Dashboard <ExternalLink size={10} />
                 </a>
               </div>
             )}
