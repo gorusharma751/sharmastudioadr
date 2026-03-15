@@ -27,10 +27,24 @@ EMBEDDINGS_TABLE     = "face_embeddings"
 # insightface cosine similarity threshold — higher = stricter
 # 0.3 = loose, 0.4 = standard, 0.5 = strict
 MATCH_THRESHOLD = float(os.environ.get("MATCH_THRESHOLD", "0.35"))
+BATCH_SIZE = int(os.environ.get("PROCESS_BATCH_SIZE", "100"))
 
 # In-memory background job tracker for long-running Drive processing.
 # This avoids browser/network timeouts on large events.
 PROCESS_JOBS: Dict[str, dict] = {}
+
+
+def _update_job(job_id: Optional[str], **fields) -> None:
+    if not job_id:
+        return
+    job = PROCESS_JOBS.get(job_id)
+    if not job:
+        return
+    PROCESS_JOBS[job_id] = {
+        **job,
+        **fields,
+        "updated_at": int(time.time()),
+    }
 
 # ─── InsightFace — lazy-load so health endpoint responds immediately ──────────
 _face_app = None
@@ -276,7 +290,7 @@ def processing_status(event_id: str):
         return {"error": str(e)}
 
 
-def _process_drive_folder_impl(folder_link: str, event_id: str) -> dict:
+def _process_drive_folder_impl(folder_link: str, event_id: str, job_id: Optional[str] = None) -> dict:
     # 1. Extract folder ID
     try:
         folder_id = extract_folder_id(folder_link)
@@ -303,6 +317,24 @@ def _process_drive_folder_impl(folder_link: str, event_id: str) -> dict:
         }
 
     logger.info(f"Found {len(files)} images")
+    total_files = len(files)
+    total_batches = max(1, (total_files + BATCH_SIZE - 1) // BATCH_SIZE)
+
+    _update_job(
+        job_id,
+        progress={
+            "total_files": total_files,
+            "total_batches": total_batches,
+            "batch_size": BATCH_SIZE,
+            "current_batch": 0,
+            "scanned_files": 0,
+            "processed_embeddings": 0,
+            "committed_embeddings": 0,
+            "skipped_files": 0,
+            "progress_pct": 0,
+        },
+        message="Preparing to process photos.",
+    )
 
     # 3. Clear old embeddings for this event, then process
     try:
@@ -313,12 +345,13 @@ def _process_drive_folder_impl(folder_link: str, event_id: str) -> dict:
 
     processed = 0
     skipped = 0
+    committed = 0
     tmpdir = tempfile.mkdtemp()
-    batch: List[dict] = []
+    batch_rows: List[dict] = []
 
     try:
-        for i, f in enumerate(files):
-            logger.info(f"[{i+1}/{len(files)}] {f['name']}")
+        for i, f in enumerate(files, start=1):
+            logger.info(f"[{i}/{len(files)}] {f['name']}")
             dest = os.path.join(tmpdir, f["name"])
 
             try:
@@ -335,7 +368,7 @@ def _process_drive_folder_impl(folder_link: str, event_id: str) -> dict:
                     skipped += 1
                     continue
 
-                batch.append({
+                batch_rows.append({
                     "event_id": event_id,
                     "filename": f["name"],
                     "file_id": f["id"],
@@ -345,16 +378,38 @@ def _process_drive_folder_impl(folder_link: str, event_id: str) -> dict:
                 processed += 1
                 logger.info("  → Embedded ✓")
 
-                if len(batch) >= 50:
-                    sb_insert(EMBEDDINGS_TABLE, batch)
-                    batch = []
-
             except Exception as e:
                 logger.warning(f"  → Error: {e}")
                 skipped += 1
 
-        if batch:
-            sb_insert(EMBEDDINGS_TABLE, batch)
+            should_flush_batch = (i % BATCH_SIZE == 0) or (i == total_files)
+            if should_flush_batch:
+                if batch_rows:
+                    sb_insert(EMBEDDINGS_TABLE, batch_rows)
+                    committed += len(batch_rows)
+                    batch_rows = []
+
+                completed_batches = min(total_batches, (i + BATCH_SIZE - 1) // BATCH_SIZE)
+                pct = int((i / total_files) * 100) if total_files > 0 else 0
+                _update_job(
+                    job_id,
+                    progress={
+                        "total_files": total_files,
+                        "total_batches": total_batches,
+                        "batch_size": BATCH_SIZE,
+                        "current_batch": completed_batches,
+                        "scanned_files": i,
+                        "processed_embeddings": processed,
+                        "committed_embeddings": committed,
+                        "skipped_files": skipped,
+                        "progress_pct": pct,
+                    },
+                    message=f"Batch {completed_batches}/{total_batches} completed.",
+                )
+
+        if batch_rows:
+            sb_insert(EMBEDDINGS_TABLE, batch_rows)
+            committed += len(batch_rows)
 
     finally:
         shutil.rmtree(tmpdir, ignore_errors=True)
@@ -363,8 +418,11 @@ def _process_drive_folder_impl(folder_link: str, event_id: str) -> dict:
         return {
             "success": False,
             "event_id": event_id,
-            "total_files": len(files),
+            "total_files": total_files,
+            "total_batches": total_batches,
+            "batch_size": BATCH_SIZE,
             "processed": processed,
+            "committed": committed,
             "skipped": skipped,
             "error": (
                 "No face embeddings were created. "
@@ -376,8 +434,11 @@ def _process_drive_folder_impl(folder_link: str, event_id: str) -> dict:
     return {
         "success": True,
         "event_id": event_id,
-        "total_files": len(files),
+        "total_files": total_files,
+        "total_batches": total_batches,
+        "batch_size": BATCH_SIZE,
         "processed": processed,
+        "committed": committed,
         "skipped": skipped,
     }
 
@@ -388,14 +449,27 @@ def _run_process_job(job_id: str, folder_link: str, event_id: str):
         "status": "running",
         "event_id": event_id,
         "started_at": int(time.time()),
+        "message": "Job started.",
+        "progress": {
+            "total_files": 0,
+            "total_batches": 0,
+            "batch_size": BATCH_SIZE,
+            "current_batch": 0,
+            "scanned_files": 0,
+            "processed_embeddings": 0,
+            "committed_embeddings": 0,
+            "skipped_files": 0,
+            "progress_pct": 0,
+        },
     }
     try:
-        result = _process_drive_folder_impl(folder_link, event_id)
+        result = _process_drive_folder_impl(folder_link, event_id, job_id=job_id)
         if result.get("success"):
             PROCESS_JOBS[job_id] = {
                 **PROCESS_JOBS[job_id],
                 "status": "completed",
                 "result": result,
+                "message": "Processing completed.",
                 "finished_at": int(time.time()),
             }
         else:
@@ -404,6 +478,7 @@ def _run_process_job(job_id: str, folder_link: str, event_id: str):
                 "status": "failed",
                 "error": result.get("error", "Unknown error"),
                 "result": result,
+                "message": "Processing failed.",
                 "finished_at": int(time.time()),
             }
     except Exception as e:
@@ -441,6 +516,18 @@ def _start_process_job(folder_link: str, event_id: str) -> dict:
         "status": "queued",
         "event_id": event_id,
         "created_at": int(time.time()),
+        "message": "Queued for background processing.",
+        "progress": {
+            "total_files": 0,
+            "total_batches": 0,
+            "batch_size": BATCH_SIZE,
+            "current_batch": 0,
+            "scanned_files": 0,
+            "processed_embeddings": 0,
+            "committed_embeddings": 0,
+            "skipped_files": 0,
+            "progress_pct": 0,
+        },
     }
 
     t = threading.Thread(

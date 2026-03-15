@@ -17,7 +17,7 @@ import {
 } from '@/components/ui/dialog';
 
 const PYTHON_API = import.meta.env.VITE_PYTHON_API_URL || 'https://sharmastudioadr-api-production.up.railway.app';
-const ADMIN_FLOW_VERSION = 'v2026.03.13-compat';
+const ADMIN_FLOW_VERSION = 'v2026.03.15-batching';
 
 async function fetchJsonWithTimeout(url: string, timeoutMs: number): Promise<any> {
   try {
@@ -26,6 +26,39 @@ async function fetchJsonWithTimeout(url: string, timeoutMs: number): Promise<any
 
     // If HTML is returned, the configured API URL likely points to the frontend app,
     // not the Python backend service.
+    const lower = text.trim().toLowerCase();
+    const looksLikeHtml = lower.startsWith('<!doctype html') || lower.startsWith('<html');
+    if (looksLikeHtml) {
+      return {
+        ok: false,
+        status: res.status,
+        data: {
+          error: 'Configured API URL is pointing to a web page, not the Python API. Set VITE_PYTHON_API_URL to your Railway Python service URL.',
+        },
+      };
+    }
+
+    try {
+      const data = JSON.parse(text);
+      return { ok: res.ok, status: res.status, data };
+    } catch {
+      return { ok: res.ok, status: res.status, data: { error: (text || `HTTP ${res.status}`).substring(0, 240) } };
+    }
+  } catch (e: any) {
+    return { ok: false, status: 0, data: { error: String(e?.message || e) } };
+  }
+}
+
+async function postJsonWithTimeout(url: string, body: unknown, timeoutMs: number): Promise<any> {
+  try {
+    const res = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+      signal: AbortSignal.timeout(timeoutMs),
+    });
+    const text = await res.text();
+
     const lower = text.trim().toLowerCase();
     const looksLikeHtml = lower.startsWith('<!doctype html') || lower.startsWith('<html');
     if (looksLikeHtml) {
@@ -75,7 +108,7 @@ interface ApiStatus {
   checking: boolean;
   health: { ok: boolean; error?: string } | null;
   db: { ok: boolean; error?: string; data?: unknown } | null;
-  events: Record<string, { ok: boolean; total?: number; error?: string; data?: unknown }>;
+  eventsSummary: { totalEvents: number; processedEvents: number; pendingEvents: number; unknownEvents: number } | null;
   showDetails: boolean;
 }
 
@@ -95,7 +128,7 @@ const FindPhotosManager: React.FC = () => {
   const [processingEventId, setProcessingEventId] = useState<string | null>(null);
   const [eventStatuses, setEventStatuses] = useState<Record<string, string>>({});
   const [apiStatus, setApiStatus] = useState<ApiStatus>({
-    checking: false, health: null, db: null, events: {}, showDetails: false,
+    checking: false, health: null, db: null, eventsSummary: null, showDetails: false,
   });
 
   // New event form
@@ -132,7 +165,7 @@ const FindPhotosManager: React.FC = () => {
   };
 
   const checkApiStatus = async () => {
-    setApiStatus(s => ({ ...s, checking: true, health: null, db: null, events: {} }));
+    setApiStatus(s => ({ ...s, checking: true, health: null, db: null, eventsSummary: null, showDetails: true }));
     const event_ids = events.map(e => e.api_event_id);
     try {
       // Use longer timeouts to avoid false negatives when Render wakes up.
@@ -142,16 +175,23 @@ const FindPhotosManager: React.FC = () => {
       const healthRes = healthReq?.data || {};
       const dbRes = dbReq?.data || {};
 
-      const eventMap: ApiStatus['events'] = {};
+      let processedEvents = 0;
+      let pendingEvents = 0;
+      let unknownEvents = 0;
+
       await Promise.all(event_ids.map(async (eid) => {
         const req = await fetchJsonWithTimeout(`${PYTHON_API}/event-stats/${encodeURIComponent(eid)}`, 45000);
         const data = req?.data || { error: 'No response' };
-        eventMap[eid] = {
-          ok: !data.error,
-          total: data.total_photos ?? data.count,
-          error: data.error,
-          data,
-        };
+        if (data.error) {
+          unknownEvents += 1;
+          return;
+        }
+        const total = Number(data.total_photos ?? data.count ?? 0);
+        if (total > 0) {
+          processedEvents += 1;
+        } else {
+          pendingEvents += 1;
+        }
       }));
 
       const healthOk = healthRes?.status === 'ok';
@@ -164,7 +204,12 @@ const FindPhotosManager: React.FC = () => {
           error: dbRes?.error ? String(dbRes.error).substring(0, 120) : undefined,
           data: dbRes,
         },
-        events: eventMap,
+        eventsSummary: {
+          totalEvents: event_ids.length,
+          processedEvents,
+          pendingEvents,
+          unknownEvents,
+        },
         showDetails: true,
       });
     } catch (err: any) {
@@ -219,16 +264,40 @@ const FindPhotosManager: React.FC = () => {
       };
 
       let finalResult: any = null;
+      const formatJobProgress = (job: any): string => {
+        const p = job?.progress || {};
+        const totalFiles = Number(p.total_files ?? 0);
+        const scannedFiles = Number(p.scanned_files ?? 0);
+        const processedEmbeddings = Number(p.processed_embeddings ?? 0);
+        const committedEmbeddings = Number(p.committed_embeddings ?? processedEmbeddings);
+        const skippedFiles = Number(p.skipped_files ?? 0);
+        const batchSize = Number(p.batch_size ?? 100);
+        const totalBatches = Number(p.total_batches ?? (totalFiles > 0 ? Math.ceil(totalFiles / batchSize) : 0));
+        const currentBatch = Number(p.current_batch ?? (scannedFiles > 0 ? Math.ceil(scannedFiles / batchSize) : 0));
+        const pct = Number(p.progress_pct ?? (totalFiles > 0 ? Math.floor((scannedFiles / totalFiles) * 100) : 0));
+
+        if (totalFiles <= 0) {
+          return '📦 Preparing batches...';
+        }
+
+        const batchLabel = totalBatches > 0 ? `${Math.min(currentBatch, totalBatches)}/${totalBatches}` : `${currentBatch}`;
+        return `📦 Batch ${batchLabel} • ${scannedFiles}/${totalFiles} scanned (${pct}%) • ${committedEmbeddings} embedded • ${skippedFiles} skipped`;
+      };
+
       const pollJobUntilDone = async (jobId: string): Promise<any> => {
         const maxPollMs = 15 * 60 * 1000;
-        const pollEveryMs = 5000;
+        const pollEveryMs = 3000;
         const startAt = Date.now();
 
         while (Date.now() - startAt < maxPollMs) {
-          setEventStatuses(s => ({ ...s, [event.id]: '📸 Processing photos in background. Please wait...' }));
-
           const statusReq = await fetchJsonWithTimeout(`${PYTHON_API}/process-drive-folder/status/${jobId}`, 30000);
           const job = statusReq?.data || {};
+
+          if (job.status === 'queued') {
+            setEventStatuses(s => ({ ...s, [event.id]: '⏳ Job queued. Waiting for worker...' }));
+          } else if (job.status === 'running') {
+            setEventStatuses(s => ({ ...s, [event.id]: formatJobProgress(job) }));
+          }
 
           if (job.status === 'completed') {
             return job.result || { success: true };
@@ -246,7 +315,7 @@ const FindPhotosManager: React.FC = () => {
       };
 
       // Prefer async job mode when available.
-      const startReq = await fetchJsonWithTimeout(`${PYTHON_API}/process-drive-folder/start`, 90000);
+      const startReq = await postJsonWithTimeout(`${PYTHON_API}/process-drive-folder/start`, payload, 90000);
       const startData = startReq?.data || {};
       const asyncSupported = !!(startReq?.ok && startData?.job_id);
 
@@ -282,9 +351,11 @@ const FindPhotosManager: React.FC = () => {
       }
 
       if (finalResult?.success && typeof finalResult?.processed === 'number') {
-        const msg = `✅ Done! ${finalResult.processed} photos embedded, ${finalResult.skipped} skipped.`;
+        const embeddedCount = Number(finalResult?.committed ?? finalResult?.processed ?? 0);
+        const totalFiles = Number(finalResult?.total_files ?? 0);
+        const msg = `✅ Completed all batches. ${embeddedCount} embedded, ${finalResult.skipped} skipped, ${totalFiles} files scanned.`;
         setEventStatuses(s => ({ ...s, [event.id]: msg }));
-        toast({ title: '🎉 Done!', description: `${finalResult.processed} photos processed for "${event.name}"` });
+        toast({ title: '🎉 Done!', description: `${embeddedCount} photos embedded for "${event.name}"` });
       } else if (finalResult?.success) {
         // Defensive fallback if backend returned success without counts.
         const msg = 'Processing finished, but counts were unavailable. Run Diagnostics to confirm embedded photo count.';
@@ -377,42 +448,50 @@ const FindPhotosManager: React.FC = () => {
           <div className="space-y-2">
             {/* Row: Python API health */}
             <div className="flex items-center gap-3 text-sm">
-              <span className={`w-2 h-2 rounded-full ${apiStatus.health?.ok ? 'bg-green-500' : 'bg-red-500'}`} />
+              <span className={`w-2 h-2 rounded-full ${apiStatus.checking ? 'bg-yellow-500' : (apiStatus.health?.ok ? 'bg-green-500' : 'bg-red-500')}`} />
               <span className="font-medium w-32">Python API</span>
-              <span className={apiStatus.health?.ok ? 'text-green-600' : 'text-red-600'}>
-                {apiStatus.health?.ok ? 'Online ✓' : `Offline — ${apiStatus.health?.error ?? 'no response'}`}
+              <span className={apiStatus.checking ? 'text-yellow-600' : (apiStatus.health?.ok ? 'text-green-600' : 'text-red-600')}>
+                {apiStatus.checking
+                  ? 'Checking...'
+                  : (apiStatus.health?.ok ? 'Online ✓' : `Offline — ${apiStatus.health?.error ?? 'no response'}`)}
               </span>
             </div>
 
             {/* Row: Database */}
             <div className="flex items-start gap-3 text-sm">
-              <span className={`w-2 h-2 rounded-full mt-1 shrink-0 ${apiStatus.db?.ok ? 'bg-green-500' : 'bg-red-500'}`} />
+              <span className={`w-2 h-2 rounded-full mt-1 shrink-0 ${apiStatus.checking ? 'bg-yellow-500' : (apiStatus.db?.ok ? 'bg-green-500' : 'bg-red-500')}`} />
               <span className="font-medium w-32 shrink-0">Database</span>
               <div>
-                <span className={apiStatus.db?.ok ? 'text-green-600' : 'text-red-600'}>
-                  {apiStatus.db?.ok ? 'Connected ✓' : 'Unavailable ✗'}
+                <span className={apiStatus.checking ? 'text-yellow-600' : (apiStatus.db?.ok ? 'text-green-600' : 'text-red-600')}>
+                  {apiStatus.checking ? 'Checking...' : (apiStatus.db?.ok ? 'Connected ✓' : 'Unavailable ✗')}
                 </span>
-                {!apiStatus.db?.ok && apiStatus.db?.error && (
+                {!apiStatus.checking && !apiStatus.db?.ok && apiStatus.db?.error && (
                   <p className="text-xs text-muted-foreground mt-0.5 max-w-md">{apiStatus.db.error}</p>
                 )}
               </div>
             </div>
 
-            {/* Per-event embedding counts */}
-            {Object.entries(apiStatus.events).map(([eid, ev]) => (
-              <div key={eid} className="flex items-center gap-3 text-sm">
-                <span className={`w-2 h-2 rounded-full ${ev.ok ? 'bg-green-500' : 'bg-yellow-500'}`} />
-                <span className="font-medium w-32 truncate">Event: {eid}</span>
-                <span className={ev.ok ? 'text-green-600' : 'text-yellow-600'}>
-                  {ev.ok
-                    ? (ev.total !== undefined ? `${ev.total} photos embedded ✓` : 'Data OK ✓')
-                    : `Not embedded — ${ev.error ?? 'no data'}`}
-                </span>
+            {/* Event embedding summary */}
+            {apiStatus.eventsSummary && (
+              <div className="flex items-start gap-3 text-sm">
+                <span className="w-2 h-2 rounded-full mt-1 shrink-0 bg-blue-500" />
+                <span className="font-medium w-32 shrink-0">Events</span>
+                <div className="text-muted-foreground">
+                  <p>
+                    {apiStatus.eventsSummary.processedEvents}/{apiStatus.eventsSummary.totalEvents} events have embeddings.
+                  </p>
+                  {apiStatus.eventsSummary.pendingEvents > 0 && (
+                    <p>{apiStatus.eventsSummary.pendingEvents} event(s) still need photo processing.</p>
+                  )}
+                  {apiStatus.eventsSummary.unknownEvents > 0 && (
+                    <p>{apiStatus.eventsSummary.unknownEvents} event(s) could not be checked right now.</p>
+                  )}
+                </div>
               </div>
-            ))}
+            )}
 
             {/* DB fix banner */}
-            {apiStatus.db && !apiStatus.db.ok && (
+            {!apiStatus.checking && apiStatus.db && !apiStatus.db.ok && (
               <div className="mt-3 p-3 rounded-lg bg-red-500/10 border border-red-500/30 space-y-2">
                 <div className="flex items-center gap-2 text-red-600 font-semibold text-sm">
                   <AlertTriangle size={16} /> Database Check Failed — Action Required
