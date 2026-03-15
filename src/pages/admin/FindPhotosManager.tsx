@@ -17,7 +17,7 @@ import {
 } from '@/components/ui/dialog';
 
 const PYTHON_API = import.meta.env.VITE_PYTHON_API_URL || 'https://sharmastudioadr-api-production.up.railway.app';
-const ADMIN_FLOW_VERSION = 'v2026.03.15-batching-resume';
+const ADMIN_FLOW_VERSION = 'v2026.03.15-chunk-chain';
 
 async function fetchJsonWithTimeout(url: string, timeoutMs: number): Promise<any> {
   try {
@@ -127,6 +127,7 @@ const FindPhotosManager: React.FC = () => {
   const [searchQuery, setSearchQuery] = useState('');
   const [processingEventId, setProcessingEventId] = useState<string | null>(null);
   const [eventStatuses, setEventStatuses] = useState<Record<string, string>>({});
+  const [chunkJobIds, setChunkJobIds] = useState<Record<string, string>>({});
   const [apiStatus, setApiStatus] = useState<ApiStatus>({
     checking: false, health: null, db: null, eventsSummary: null, showDetails: false,
   });
@@ -255,144 +256,86 @@ const FindPhotosManager: React.FC = () => {
       return;
     }
     setProcessingEventId(event.id);
-    setEventStatuses(s => ({ ...s, [event.id]: '⏳ Starting processing job...' }));
+    setEventStatuses(s => ({ ...s, [event.id]: '⏳ Starting chunked processing...' }));
 
     try {
-      const payload = {
+      const payload: Record<string, unknown> = {
         folder_link: event.drive_folder_link,
         event_id: event.api_event_id,
+        chunk_size: 100,
       };
 
-      let finalResult: any = null;
-      const formatJobProgress = (job: any): string => {
-        const p = job?.progress || {};
-        const totalFiles = Number(p.total_files ?? 0);
-        const scannedFiles = Number(p.scanned_files ?? 0);
-        const processedEmbeddings = Number(p.processed_embeddings ?? 0);
-        const committedEmbeddings = Number(p.committed_embeddings ?? processedEmbeddings);
-        const skippedFiles = Number(p.skipped_files ?? 0);
-        const batchSize = Number(p.batch_size ?? 100);
-        const totalBatches = Number(p.total_batches ?? (totalFiles > 0 ? Math.ceil(totalFiles / batchSize) : 0));
-        const completedBatches = Number(p.current_batch ?? (scannedFiles > 0 ? Math.floor(scannedFiles / batchSize) : 0));
-        const activeBatch = Number(p.active_batch ?? Math.min(totalBatches || 1, completedBatches + 1));
-        const pct = Number(p.progress_pct ?? (totalFiles > 0 ? Math.floor((scannedFiles / totalFiles) * 100) : 0));
+      const formatChunkProgress = (data: any): string => {
+        const totalFiles = Number(data?.total_files ?? 0);
+        const nextIndex = Number(data?.next_index ?? 0);
+        const totalBatches = Number(data?.total_batches ?? (totalFiles > 0 ? Math.ceil(totalFiles / 100) : 0));
+        const completedBatches = Number(data?.completed_batches ?? (nextIndex > 0 ? Math.ceil(nextIndex / 100) : 0));
+        const activeBatch = totalBatches > 0 ? Math.min(totalBatches, completedBatches + 1) : completedBatches;
+        const pct = Number(data?.progress_pct ?? (totalFiles > 0 ? Math.floor((nextIndex / totalFiles) * 100) : 0));
+        const embedded = Number(data?.committed ?? data?.processed ?? 0);
+        const skipped = Number(data?.skipped ?? 0);
 
-        if (totalFiles <= 0) {
-          return '📦 Preparing batches...';
-        }
-
-        const completedLabel = totalBatches > 0
-          ? `${Math.min(completedBatches, totalBatches)}/${totalBatches}`
-          : `${completedBatches}`;
-        const activeLabel = totalBatches > 0
-          ? `${Math.min(activeBatch, totalBatches)}/${totalBatches}`
-          : `${activeBatch}`;
-        return `📦 ${completedLabel} batches complete • running batch ${activeLabel} • ${scannedFiles}/${totalFiles} scanned (${pct}%) • ${committedEmbeddings} embedded • ${skippedFiles} skipped`;
+        return `📦 ${Math.min(completedBatches, totalBatches)}/${totalBatches} batches complete • running batch ${activeBatch}/${totalBatches} • ${nextIndex}/${totalFiles} scanned (${pct}%) • ${embedded} embedded • ${skipped} skipped`;
       };
 
-      const pollJobUntilDone = async (jobId: string): Promise<{ type: 'completed'; result: any } | { type: 'still-running'; jobId: string }> => {
-        const maxPollMs = 60 * 60 * 1000;
-        const pollEveryMs = 3000;
-        const startAt = Date.now();
+      let chunkJobId = chunkJobIds[event.id];
 
-        while (Date.now() - startAt < maxPollMs) {
-          const statusReq = await fetchJsonWithTimeout(`${PYTHON_API}/process-drive-folder/status/${jobId}`, 30000);
-          const job = statusReq?.data || {};
+      if (!chunkJobId) {
+        const chunkStartReq = await postJsonWithTimeout(`${PYTHON_API}/process-drive-folder/chunk/start`, payload, 90000);
+        const chunkStartData = chunkStartReq?.data || {};
 
-          if (job.status === 'queued') {
-            setEventStatuses(s => ({ ...s, [event.id]: '⏳ Job queued. Waiting for worker...' }));
-          } else if (job.status === 'running') {
-            setEventStatuses(s => ({ ...s, [event.id]: formatJobProgress(job) }));
-          }
-
-          if (job.status === 'completed') {
-            return { type: 'completed', result: job.result || { success: true } };
-          }
-
-          if (job.status === 'failed') {
-            const err = job.error || job.result?.error || 'Background job failed';
+        if (chunkStartReq?.ok && chunkStartData?.job_id) {
+          chunkJobId = String(chunkStartData.job_id);
+          setChunkJobIds(s => ({ ...s, [event.id]: chunkJobId as string }));
+          setEventStatuses(s => ({
+            ...s,
+            [event.id]: `📦 0/${chunkStartData.total_batches || 0} batches complete • running batch 1/${chunkStartData.total_batches || 0} • 0/${chunkStartData.total_files || 0} scanned (0%) • 0 embedded • 0 skipped`,
+          }));
+        } else {
+          // Fallback to older async endpoint if chunk API is not available yet.
+          const startReq = await postJsonWithTimeout(`${PYTHON_API}/process-drive-folder/start`, payload, 90000);
+          const startData = startReq?.data || {};
+          if (!(startReq?.ok && startData?.job_id)) {
+            const err = chunkStartData?.error || startData?.error || 'Failed to start processing';
             throw new Error(String(err));
           }
 
-          await new Promise(resolve => setTimeout(resolve, pollEveryMs));
-        }
-
-        setEventStatuses(s => ({
-          ...s,
-          [event.id]: '⏳ Still running in background. Click Process Photos again to continue live progress.',
-        }));
-        return { type: 'still-running', jobId };
-      };
-
-      // Prefer async job mode when available.
-      const startReq = await postJsonWithTimeout(`${PYTHON_API}/process-drive-folder/start`, payload, 90000);
-      const startData = startReq?.data || {};
-      const asyncSupported = !!(startReq?.ok && startData?.job_id);
-
-      if (asyncSupported) {
-        const pollResult = await pollJobUntilDone(startData.job_id as string);
-        if (pollResult.type === 'completed') {
-          finalResult = pollResult.result;
-        } else {
-          toast({
-            title: 'Still processing',
-            description: 'The event is still processing in background. You can click Process Photos again to resume live status.',
-          });
+          setEventStatuses(s => ({ ...s, [event.id]: '⏳ Legacy processing started. Waiting for completion...' }));
+          toast({ title: 'Processing started', description: 'Backend is using legacy processing mode for this deployment.' });
           return;
-        }
-      } else {
-        // Fallback to sync endpoint for older backend deploys.
-        setEventStatuses(s => ({ ...s, [event.id]: '📸 Processing photos (sync mode). Please wait...' }));
-
-        const syncReq = await fetch(`${PYTHON_API}/process-drive-folder`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(payload),
-          signal: AbortSignal.timeout(600000),
-        });
-
-        const syncText = await syncReq.text();
-        try {
-          finalResult = JSON.parse(syncText);
-        } catch {
-          finalResult = { error: syncText || `Server error (${syncReq.status})` };
-        }
-
-        if (!syncReq.ok && !finalResult?.error) {
-          finalResult = { error: `Server error (${syncReq.status})` };
-        }
-
-        // Newer backend may queue a background job on /process-drive-folder.
-        // If queued, wait for actual completion before showing success/failure.
-        if (finalResult?.queued && finalResult?.job_id) {
-          const pollResult = await pollJobUntilDone(String(finalResult.job_id));
-          if (pollResult.type === 'completed') {
-            finalResult = pollResult.result;
-          } else {
-            toast({
-              title: 'Still processing',
-              description: 'The event is still processing in background. You can click Process Photos again to resume live status.',
-            });
-            return;
-          }
         }
       }
 
-      if (finalResult?.success && typeof finalResult?.processed === 'number') {
-        const embeddedCount = Number(finalResult?.committed ?? finalResult?.processed ?? 0);
-        const totalFiles = Number(finalResult?.total_files ?? 0);
-        const msg = `✅ Completed all batches. ${embeddedCount} embedded, ${finalResult.skipped} skipped, ${totalFiles} files scanned.`;
+      let hasMore = true;
+      let finalChunkResult: any = null;
+
+      while (hasMore) {
+        const nextReq = await postJsonWithTimeout(`${PYTHON_API}/process-drive-folder/chunk/next`, { job_id: chunkJobId }, 600000);
+        const nextData = nextReq?.data || {};
+
+        if (!nextReq?.ok || nextData?.error) {
+          throw new Error(String(nextData?.error || 'Failed while processing next chunk'));
+        }
+
+        finalChunkResult = nextData;
+        setEventStatuses(s => ({ ...s, [event.id]: formatChunkProgress(nextData) }));
+        hasMore = !!nextData.has_more;
+      }
+
+      if (finalChunkResult?.success) {
+        const embeddedCount = Number(finalChunkResult?.committed ?? finalChunkResult?.processed ?? 0);
+        const totalFiles = Number(finalChunkResult?.total_files ?? 0);
+        const skipped = Number(finalChunkResult?.skipped ?? 0);
+        const msg = `✅ Completed all batches. ${embeddedCount} embedded, ${skipped} skipped, ${totalFiles} files scanned.`;
         setEventStatuses(s => ({ ...s, [event.id]: msg }));
         toast({ title: '🎉 Done!', description: `${embeddedCount} photos embedded for "${event.name}"` });
-      } else if (finalResult?.success) {
-        // Defensive fallback if backend returned success without counts.
-        const msg = 'Processing finished, but counts were unavailable. Run Diagnostics to confirm embedded photo count.';
-        setEventStatuses(s => ({ ...s, [event.id]: `⚠️ ${msg}` }));
-        toast({ title: 'Completed with warning', description: msg });
+        setChunkJobIds(s => {
+          const next = { ...s };
+          delete next[event.id];
+          return next;
+        });
       } else {
-        const errMsg = finalResult?.error || 'Server error';
-        setEventStatuses(s => ({ ...s, [event.id]: `❌ ${String(errMsg).substring(0, 150)}` }));
-        toast({ title: 'Error', description: String(errMsg).substring(0, 200), variant: 'destructive' });
+        throw new Error('Chunk processing ended without success response');
       }
     } catch (error: any) {
       const msg = error?.message || 'Failed to process photos';

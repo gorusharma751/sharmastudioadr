@@ -7,7 +7,7 @@ import threading
 import time
 import uuid
 from pathlib import Path
-from typing import Optional, List, Dict
+from typing import Optional, List, Dict, Tuple
 
 import cv2
 import numpy as np
@@ -32,6 +32,7 @@ BATCH_SIZE = int(os.environ.get("PROCESS_BATCH_SIZE", "100"))
 # In-memory background job tracker for long-running Drive processing.
 # This avoids browser/network timeouts on large events.
 PROCESS_JOBS: Dict[str, dict] = {}
+CHUNK_JOBS: Dict[str, dict] = {}
 
 
 def _update_job(job_id: Optional[str], **fields) -> None:
@@ -524,6 +525,60 @@ def _find_active_job_for_event(event_id: str) -> Optional[str]:
     return None
 
 
+def _find_active_chunk_job_for_event(event_id: str) -> Optional[str]:
+    for jid, job in CHUNK_JOBS.items():
+        if job.get("event_id") == event_id and job.get("status") in {"active", "running"}:
+            return jid
+    return None
+
+
+def _process_files_slice(event_id: str, files_slice: List[dict]) -> Tuple[int, int, int]:
+    """
+    Process a single chunk of files and commit embeddings for the chunk.
+    Returns (processed, skipped, committed).
+    """
+    processed = 0
+    skipped = 0
+    committed = 0
+    rows: List[dict] = []
+    tmpdir = tempfile.mkdtemp()
+
+    try:
+        for f in files_slice:
+            dest = os.path.join(tmpdir, f["name"])
+            try:
+                r = requests.get(f["download_url"], stream=True, timeout=60)
+                r.raise_for_status()
+                with open(dest, "wb") as fp:
+                    for chunk in r.iter_content(65536):
+                        fp.write(chunk)
+
+                embedding = get_embedding(dest)
+                if embedding is None:
+                    skipped += 1
+                    continue
+
+                rows.append({
+                    "event_id": event_id,
+                    "filename": f["name"],
+                    "file_id": f["id"],
+                    "photo_url": f["photo_url"],
+                    "embedding": embedding,
+                })
+                processed += 1
+            except Exception as e:
+                logger.warning(f"Chunk file processing error ({f.get('name', 'unknown')}): {e}")
+                skipped += 1
+
+        if rows:
+            sb_insert(EMBEDDINGS_TABLE, rows)
+            committed = len(rows)
+    finally:
+        shutil.rmtree(tmpdir, ignore_errors=True)
+
+    return processed, skipped, committed
+
+
 def _start_process_job(folder_link: str, event_id: str) -> dict:
     active_job_id = _find_active_job_for_event(event_id)
     if active_job_id:
@@ -611,6 +666,221 @@ def process_drive_folder_status(job_id: str):
     if not job:
         return {"error": "job not found", "job_id": job_id}
     return job
+
+
+@app.post("/process-drive-folder/chunk/start")
+async def process_drive_folder_chunk_start(data: dict):
+    """
+    Start (or resume) a resumable chunk-processing session.
+    Each subsequent /chunk/next call processes one chunk only.
+    """
+    folder_link = data.get("folder_link", "")
+    event_id = data.get("event_id", "")
+    chunk_size = int(data.get("chunk_size", BATCH_SIZE) or BATCH_SIZE)
+    chunk_size = max(1, min(chunk_size, 200))
+
+    if not folder_link or not event_id:
+        return {"error": "folder_link and event_id are required"}
+
+    active_job_id = _find_active_chunk_job_for_event(event_id)
+    if active_job_id:
+        job = CHUNK_JOBS.get(active_job_id, {})
+        return {
+            "success": True,
+            "job_id": active_job_id,
+            "event_id": event_id,
+            "status": job.get("status", "active"),
+            "total_files": job.get("total_files", 0),
+            "chunk_size": job.get("chunk_size", chunk_size),
+            "next_index": job.get("next_index", 0),
+            "message": "Resumed existing chunk session.",
+        }
+
+    try:
+        folder_id = extract_folder_id(folder_link)
+        files = list_drive_images(folder_id)
+    except ValueError as e:
+        return {"error": str(e)}
+    except RuntimeError as e:
+        return {"error": str(e)}
+    except Exception as e:
+        return {"error": f"Failed to list Drive folder: {e}"}
+
+    if not files:
+        return {
+            "error": (
+                "No images found in the Google Drive folder. "
+                "Make sure the folder is public and contains image files."
+            )
+        }
+
+    try:
+        sb_delete(EMBEDDINGS_TABLE, {"event_id": f"eq.{event_id}"})
+    except Exception as e:
+        return {"error": f"Database error clearing old embeddings: {e}"}
+
+    total_files = len(files)
+    total_batches = max(1, (total_files + chunk_size - 1) // chunk_size)
+    job_id = str(uuid.uuid4())
+    now = int(time.time())
+    CHUNK_JOBS[job_id] = {
+        "job_id": job_id,
+        "status": "active",
+        "event_id": event_id,
+        "folder_link": folder_link,
+        "chunk_size": chunk_size,
+        "files": files,
+        "total_files": total_files,
+        "total_batches": total_batches,
+        "next_index": 0,
+        "processed": 0,
+        "committed": 0,
+        "skipped": 0,
+        "created_at": now,
+        "updated_at": now,
+    }
+
+    return {
+        "success": True,
+        "job_id": job_id,
+        "event_id": event_id,
+        "status": "active",
+        "total_files": total_files,
+        "total_batches": total_batches,
+        "chunk_size": chunk_size,
+        "next_index": 0,
+        "message": "Chunk processing session started.",
+    }
+
+
+@app.post("/process-drive-folder/chunk/next")
+async def process_drive_folder_chunk_next(data: dict):
+    """Process exactly one chunk for a previously started chunk session."""
+    job_id = data.get("job_id", "")
+    if not job_id:
+        return {"error": "job_id is required"}
+
+    job = CHUNK_JOBS.get(job_id)
+    if not job:
+        return {"error": "chunk job not found", "job_id": job_id}
+
+    if job.get("status") == "completed":
+        return {
+            "success": True,
+            "job_id": job_id,
+            "event_id": job.get("event_id"),
+            "status": "completed",
+            "has_more": False,
+            "next_index": job.get("next_index", 0),
+            "total_files": job.get("total_files", 0),
+            "total_batches": job.get("total_batches", 0),
+            "completed_batches": job.get("total_batches", 0),
+            "processed": job.get("processed", 0),
+            "committed": job.get("committed", 0),
+            "skipped": job.get("skipped", 0),
+        }
+
+    files = job.get("files", [])
+    chunk_size = int(job.get("chunk_size", BATCH_SIZE))
+    total_files = int(job.get("total_files", len(files)))
+    total_batches = int(job.get("total_batches", max(1, (total_files + chunk_size - 1) // chunk_size)))
+    start = int(job.get("next_index", 0))
+    end = min(start + chunk_size, total_files)
+
+    if start >= total_files:
+        job["status"] = "completed"
+        job["files"] = []
+        job["updated_at"] = int(time.time())
+        CHUNK_JOBS[job_id] = job
+        return {
+            "success": True,
+            "job_id": job_id,
+            "event_id": job.get("event_id"),
+            "status": "completed",
+            "has_more": False,
+            "next_index": start,
+            "total_files": total_files,
+            "total_batches": total_batches,
+            "completed_batches": total_batches,
+            "processed": job.get("processed", 0),
+            "committed": job.get("committed", 0),
+            "skipped": job.get("skipped", 0),
+        }
+
+    job["status"] = "running"
+    job["updated_at"] = int(time.time())
+    CHUNK_JOBS[job_id] = job
+
+    files_slice = files[start:end]
+    processed_chunk, skipped_chunk, committed_chunk = _process_files_slice(job.get("event_id", ""), files_slice)
+
+    processed_total = int(job.get("processed", 0)) + processed_chunk
+    skipped_total = int(job.get("skipped", 0)) + skipped_chunk
+    committed_total = int(job.get("committed", 0)) + committed_chunk
+    next_index = end
+    has_more = next_index < total_files
+    completed_batches = (next_index + chunk_size - 1) // chunk_size
+
+    job["processed"] = processed_total
+    job["skipped"] = skipped_total
+    job["committed"] = committed_total
+    job["next_index"] = next_index
+    job["status"] = "active" if has_more else "completed"
+    job["updated_at"] = int(time.time())
+    if not has_more:
+        job["files"] = []
+
+    CHUNK_JOBS[job_id] = job
+
+    return {
+        "success": True,
+        "job_id": job_id,
+        "event_id": job.get("event_id"),
+        "status": job["status"],
+        "has_more": has_more,
+        "next_index": next_index,
+        "total_files": total_files,
+        "chunk_size": chunk_size,
+        "total_batches": total_batches,
+        "completed_batches": completed_batches,
+        "current_batch_processed": processed_chunk,
+        "current_batch_skipped": skipped_chunk,
+        "processed": processed_total,
+        "committed": committed_total,
+        "skipped": skipped_total,
+        "progress_pct": int((next_index / total_files) * 100) if total_files > 0 else 0,
+    }
+
+
+@app.get("/process-drive-folder/chunk/status/{job_id}")
+def process_drive_folder_chunk_status(job_id: str):
+    job = CHUNK_JOBS.get(job_id)
+    if not job:
+        return {"error": "chunk job not found", "job_id": job_id}
+
+    total_files = int(job.get("total_files", 0))
+    chunk_size = int(job.get("chunk_size", BATCH_SIZE))
+    total_batches = int(job.get("total_batches", max(1, (total_files + chunk_size - 1) // chunk_size)))
+    next_index = int(job.get("next_index", 0))
+    completed_batches = (next_index + chunk_size - 1) // chunk_size if next_index > 0 else 0
+
+    return {
+        "success": True,
+        "job_id": job_id,
+        "event_id": job.get("event_id"),
+        "status": job.get("status", "active"),
+        "next_index": next_index,
+        "total_files": total_files,
+        "chunk_size": chunk_size,
+        "total_batches": total_batches,
+        "completed_batches": completed_batches,
+        "processed": int(job.get("processed", 0)),
+        "committed": int(job.get("committed", 0)),
+        "skipped": int(job.get("skipped", 0)),
+        "progress_pct": int((next_index / total_files) * 100) if total_files > 0 else 0,
+        "has_more": next_index < total_files,
+        "updated_at": job.get("updated_at"),
+    }
 
 
 @app.post("/match")
