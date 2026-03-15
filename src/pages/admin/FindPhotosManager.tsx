@@ -17,7 +17,7 @@ import {
 } from '@/components/ui/dialog';
 
 const PYTHON_API = import.meta.env.VITE_PYTHON_API_URL || 'https://sharmastudioadr-api-production.up.railway.app';
-const ADMIN_FLOW_VERSION = 'v2026.03.15-batching';
+const ADMIN_FLOW_VERSION = 'v2026.03.15-batching-resume';
 
 async function fetchJsonWithTimeout(url: string, timeoutMs: number): Promise<any> {
   try {
@@ -273,19 +273,25 @@ const FindPhotosManager: React.FC = () => {
         const skippedFiles = Number(p.skipped_files ?? 0);
         const batchSize = Number(p.batch_size ?? 100);
         const totalBatches = Number(p.total_batches ?? (totalFiles > 0 ? Math.ceil(totalFiles / batchSize) : 0));
-        const currentBatch = Number(p.current_batch ?? (scannedFiles > 0 ? Math.ceil(scannedFiles / batchSize) : 0));
+        const completedBatches = Number(p.current_batch ?? (scannedFiles > 0 ? Math.floor(scannedFiles / batchSize) : 0));
+        const activeBatch = Number(p.active_batch ?? Math.min(totalBatches || 1, completedBatches + 1));
         const pct = Number(p.progress_pct ?? (totalFiles > 0 ? Math.floor((scannedFiles / totalFiles) * 100) : 0));
 
         if (totalFiles <= 0) {
           return '📦 Preparing batches...';
         }
 
-        const batchLabel = totalBatches > 0 ? `${Math.min(currentBatch, totalBatches)}/${totalBatches}` : `${currentBatch}`;
-        return `📦 Batch ${batchLabel} • ${scannedFiles}/${totalFiles} scanned (${pct}%) • ${committedEmbeddings} embedded • ${skippedFiles} skipped`;
+        const completedLabel = totalBatches > 0
+          ? `${Math.min(completedBatches, totalBatches)}/${totalBatches}`
+          : `${completedBatches}`;
+        const activeLabel = totalBatches > 0
+          ? `${Math.min(activeBatch, totalBatches)}/${totalBatches}`
+          : `${activeBatch}`;
+        return `📦 ${completedLabel} batches complete • running batch ${activeLabel} • ${scannedFiles}/${totalFiles} scanned (${pct}%) • ${committedEmbeddings} embedded • ${skippedFiles} skipped`;
       };
 
-      const pollJobUntilDone = async (jobId: string): Promise<any> => {
-        const maxPollMs = 15 * 60 * 1000;
+      const pollJobUntilDone = async (jobId: string): Promise<{ type: 'completed'; result: any } | { type: 'still-running'; jobId: string }> => {
+        const maxPollMs = 60 * 60 * 1000;
         const pollEveryMs = 3000;
         const startAt = Date.now();
 
@@ -300,7 +306,7 @@ const FindPhotosManager: React.FC = () => {
           }
 
           if (job.status === 'completed') {
-            return job.result || { success: true };
+            return { type: 'completed', result: job.result || { success: true } };
           }
 
           if (job.status === 'failed') {
@@ -311,7 +317,11 @@ const FindPhotosManager: React.FC = () => {
           await new Promise(resolve => setTimeout(resolve, pollEveryMs));
         }
 
-        throw new Error('Processing timed out before completion.');
+        setEventStatuses(s => ({
+          ...s,
+          [event.id]: '⏳ Still running in background. Click Process Photos again to continue live progress.',
+        }));
+        return { type: 'still-running', jobId };
       };
 
       // Prefer async job mode when available.
@@ -320,7 +330,16 @@ const FindPhotosManager: React.FC = () => {
       const asyncSupported = !!(startReq?.ok && startData?.job_id);
 
       if (asyncSupported) {
-        finalResult = await pollJobUntilDone(startData.job_id as string);
+        const pollResult = await pollJobUntilDone(startData.job_id as string);
+        if (pollResult.type === 'completed') {
+          finalResult = pollResult.result;
+        } else {
+          toast({
+            title: 'Still processing',
+            description: 'The event is still processing in background. You can click Process Photos again to resume live status.',
+          });
+          return;
+        }
       } else {
         // Fallback to sync endpoint for older backend deploys.
         setEventStatuses(s => ({ ...s, [event.id]: '📸 Processing photos (sync mode). Please wait...' }));
@@ -346,7 +365,16 @@ const FindPhotosManager: React.FC = () => {
         // Newer backend may queue a background job on /process-drive-folder.
         // If queued, wait for actual completion before showing success/failure.
         if (finalResult?.queued && finalResult?.job_id) {
-          finalResult = await pollJobUntilDone(String(finalResult.job_id));
+          const pollResult = await pollJobUntilDone(String(finalResult.job_id));
+          if (pollResult.type === 'completed') {
+            finalResult = pollResult.result;
+          } else {
+            toast({
+              title: 'Still processing',
+              description: 'The event is still processing in background. You can click Process Photos again to resume live status.',
+            });
+            return;
+          }
         }
       }
 

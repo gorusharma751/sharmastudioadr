@@ -327,6 +327,7 @@ def _process_drive_folder_impl(folder_link: str, event_id: str, job_id: Optional
             "total_batches": total_batches,
             "batch_size": BATCH_SIZE,
             "current_batch": 0,
+            "active_batch": 1 if total_batches > 0 else 0,
             "scanned_files": 0,
             "processed_embeddings": 0,
             "committed_embeddings": 0,
@@ -382,14 +383,10 @@ def _process_drive_folder_impl(folder_link: str, event_id: str, job_id: Optional
                 logger.warning(f"  → Error: {e}")
                 skipped += 1
 
-            should_flush_batch = (i % BATCH_SIZE == 0) or (i == total_files)
-            if should_flush_batch:
-                if batch_rows:
-                    sb_insert(EMBEDDINGS_TABLE, batch_rows)
-                    committed += len(batch_rows)
-                    batch_rows = []
-
-                completed_batches = min(total_batches, (i + BATCH_SIZE - 1) // BATCH_SIZE)
+            # Emit lightweight progress between batch commits so UI does not appear stuck.
+            if (i % 10 == 0) and (i % BATCH_SIZE != 0):
+                completed_batches = min(total_batches, i // BATCH_SIZE)
+                active_batch = min(total_batches, completed_batches + 1)
                 pct = int((i / total_files) * 100) if total_files > 0 else 0
                 _update_job(
                     job_id,
@@ -398,6 +395,34 @@ def _process_drive_folder_impl(folder_link: str, event_id: str, job_id: Optional
                         "total_batches": total_batches,
                         "batch_size": BATCH_SIZE,
                         "current_batch": completed_batches,
+                        "active_batch": active_batch,
+                        "scanned_files": i,
+                        "processed_embeddings": processed,
+                        "committed_embeddings": committed,
+                        "skipped_files": skipped,
+                        "progress_pct": pct,
+                    },
+                    message=f"Working on batch {active_batch}/{total_batches}...",
+                )
+
+            should_flush_batch = (i % BATCH_SIZE == 0) or (i == total_files)
+            if should_flush_batch:
+                if batch_rows:
+                    sb_insert(EMBEDDINGS_TABLE, batch_rows)
+                    committed += len(batch_rows)
+                    batch_rows = []
+
+                completed_batches = min(total_batches, (i + BATCH_SIZE - 1) // BATCH_SIZE)
+                active_batch = min(total_batches, completed_batches + 1)
+                pct = int((i / total_files) * 100) if total_files > 0 else 0
+                _update_job(
+                    job_id,
+                    progress={
+                        "total_files": total_files,
+                        "total_batches": total_batches,
+                        "batch_size": BATCH_SIZE,
+                        "current_batch": completed_batches,
+                        "active_batch": active_batch,
                         "scanned_files": i,
                         "processed_embeddings": processed,
                         "committed_embeddings": committed,
@@ -455,6 +480,7 @@ def _run_process_job(job_id: str, folder_link: str, event_id: str):
             "total_batches": 0,
             "batch_size": BATCH_SIZE,
             "current_batch": 0,
+            "active_batch": 0,
             "scanned_files": 0,
             "processed_embeddings": 0,
             "committed_embeddings": 0,
@@ -522,6 +548,7 @@ def _start_process_job(folder_link: str, event_id: str) -> dict:
             "total_batches": 0,
             "batch_size": BATCH_SIZE,
             "current_batch": 0,
+            "active_batch": 0,
             "scanned_files": 0,
             "processed_embeddings": 0,
             "committed_embeddings": 0,
