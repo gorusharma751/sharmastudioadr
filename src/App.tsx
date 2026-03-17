@@ -62,7 +62,7 @@ const queryClient = new QueryClient();
 
 // Wrapper for public pages with StudioProvider
 const PublicPageWrapper: React.FC<{ children: React.ReactNode }> = ({ children }) => (
-  <StudioProvider studioSlug="sharma-studio">
+  <StudioProvider studioSlug="sharmastudioadr">
     {children}
   </StudioProvider>
 );
