@@ -74,7 +74,7 @@ export const StudioProvider: React.FC<StudioProviderProps> = ({
         .from('studio_settings')
         .select('*')
         .eq('studio_id', studioData.id)
-        .single();
+        .maybeSingle();
 
       if (settingsData) {
         setSettings(settingsData as StudioSettings);
