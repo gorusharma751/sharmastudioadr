@@ -53,9 +53,14 @@ export const StudioProvider: React.FC<StudioProviderProps> = ({
         return;
       }
 
-      const { data: studioData, error: studioError } = await studioQuery.single();
+      const { data: studioData, error: studioError } = await studioQuery.maybeSingle();
 
-      if (studioError) throw studioError;
+      if (studioError) {
+        console.error('Error fetching studio:', studioError);
+        setError('Failed to load studio');
+        setLoading(false);
+        return;
+      }
       if (!studioData) {
         setError('Studio not found');
         setLoading(false);
