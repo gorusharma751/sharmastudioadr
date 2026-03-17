@@ -25,12 +25,12 @@ const SuperAdminLayout: React.FC = () => {
 
   useEffect(() => {
     if (!loading && !user) {
-      navigate('/admin/login');
+      navigate('/admin/login', { replace: true });
     }
-    if (!loading && user && !isSuperAdmin) {
-      navigate('/studio');
+    if (!loading && user && role !== null && !isSuperAdmin) {
+      navigate('/studio', { replace: true });
     }
-  }, [user, loading, isSuperAdmin, navigate]);
+  }, [user, loading, isSuperAdmin, role, navigate]);
 
   useEffect(() => {
     setMobileMenuOpen(false);
