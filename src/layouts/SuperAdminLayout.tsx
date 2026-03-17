@@ -19,7 +19,7 @@ import { cn } from '@/lib/utils';
 
 const SuperAdminLayout: React.FC = () => {
   const [mobileMenuOpen, setMobileMenuOpen] = React.useState(false);
-  const { signOut, user, loading, isSuperAdmin } = useAuth();
+  const { signOut, user, loading, isSuperAdmin, role } = useAuth();
   const location = useLocation();
   const navigate = useNavigate();
 
