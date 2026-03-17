@@ -48,6 +48,10 @@ import AlbumSettingsManager from "./pages/admin/AlbumSettingsManager";
 // Super Admin Pages
 import SuperAdminDashboard from "./pages/super-admin/Dashboard";
 import StudiosManager from "./pages/super-admin/StudiosManager";
+import PlansManager from "./pages/super-admin/PlansManager";
+import UsersManager from "./pages/super-admin/UsersManager";
+import AnalyticsPage from "./pages/super-admin/AnalyticsPage";
+import PlatformSettings from "./pages/super-admin/PlatformSettings";
 
 // User Pages
 import UserDashboard from "./pages/user/UserDashboard";
