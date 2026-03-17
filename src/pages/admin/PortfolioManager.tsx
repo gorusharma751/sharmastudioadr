@@ -14,7 +14,7 @@ import { useToast } from '@/hooks/use-toast';
 import { PortfolioAlbum, PortfolioImage } from '@/types/database';
 
 const PortfolioManager: React.FC = () => {
-  const { currentStudio } = useAuth();
+  const { studio } = useAuth();
   const { toast } = useToast();
   const [albums, setAlbums] = useState<PortfolioAlbum[]>([]);
   const [selectedAlbum, setSelectedAlbum] = useState<PortfolioAlbum | null>(null);
@@ -36,19 +36,19 @@ const PortfolioManager: React.FC = () => {
   });
 
   useEffect(() => {
-    if (currentStudio?.id) {
+    if (studio?.id) {
       fetchAlbums();
     }
-  }, [currentStudio?.id]);
+  }, [studio?.id]);
 
   const fetchAlbums = async () => {
-    if (!currentStudio?.id) return;
+    if (!studio?.id) return;
     
     try {
       const { data, error } = await supabase
         .from('portfolio_albums')
         .select('*')
-        .eq('studio_id', currentStudio.id)
+        .eq('studio_id', studio.id)
         .order('sort_order');
 
       if (error) throw error;
@@ -100,14 +100,14 @@ const PortfolioManager: React.FC = () => {
   };
 
   const handleSaveAlbum = async () => {
-    if (!currentStudio?.id || !albumFormData.name) {
+    if (!studio?.id || !albumFormData.name) {
       toast({ title: 'Error', description: 'Album name is required', variant: 'destructive' });
       return;
     }
 
     try {
       const payload = {
-        studio_id: currentStudio.id,
+        studio_id: studio.id,
         name: albumFormData.name,
         description: albumFormData.description || null,
         category: albumFormData.category || null,
@@ -157,14 +157,14 @@ const PortfolioManager: React.FC = () => {
   };
 
   const handleAddImage = async () => {
-    if (!selectedAlbum || !currentStudio?.id || !imageFormData.image_url) {
+    if (!selectedAlbum || !studio?.id || !imageFormData.image_url) {
       toast({ title: 'Error', description: 'Image URL is required', variant: 'destructive' });
       return;
     }
 
     try {
       const { error } = await supabase.from('portfolio_images').insert({
-        studio_id: currentStudio.id,
+        studio_id: studio.id,
         album_id: selectedAlbum.id,
         image_url: imageFormData.image_url,
         caption: imageFormData.caption || null,

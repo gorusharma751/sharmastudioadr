@@ -10,7 +10,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { useToast } from '@/hooks/use-toast';
 
 const AlbumSettingsManager: React.FC = () => {
-  const { currentStudio } = useAuth();
+  const { studio } = useAuth();
   const { toast } = useToast();
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -26,16 +26,16 @@ const AlbumSettingsManager: React.FC = () => {
   });
 
   useEffect(() => {
-    if (currentStudio?.id) fetchSettings();
-  }, [currentStudio?.id]);
+    if (studio?.id) fetchSettings();
+  }, [studio?.id]);
 
   const fetchSettings = async () => {
-    if (!currentStudio?.id) return;
+    if (!studio?.id) return;
     try {
       const { data } = await supabase
         .from('album_settings')
         .select('*')
-        .eq('studio_id', currentStudio.id)
+        .eq('studio_id', studio.id)
         .maybeSingle();
 
       if (data) {
@@ -58,11 +58,11 @@ const AlbumSettingsManager: React.FC = () => {
   };
 
   const handleSave = async () => {
-    if (!currentStudio?.id) return;
+    if (!studio?.id) return;
     setSaving(true);
     try {
       const payload = {
-        studio_id: currentStudio.id,
+        studio_id: studio.id,
         ...formData,
       };
       const { error } = await supabase

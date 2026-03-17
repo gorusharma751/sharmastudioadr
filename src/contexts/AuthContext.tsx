@@ -1,7 +1,11 @@
 import React, { createContext, useContext, useEffect, useState } from 'react';
 import { User, Session } from '@supabase/supabase-js';
 import { supabase } from '@/integrations/supabase/client';
-import { AppRole, Studio, StudioMember } from '@/types/database';
+import { AppRole, Studio } from '@/types/database';
+
+// ─── Hardcoded Super Admin credentials ───────────────────────────────────────
+const SUPER_ADMIN_EMAIL = 'superadmin@gmail.com';
+const SUPER_ADMIN_PASSWORD = 'passwordAdmin@2025';
 
 interface AuthContextType {
   user: User | null;
@@ -10,10 +14,8 @@ interface AuthContextType {
   role: AppRole | null;
   isSuperAdmin: boolean;
   isStudioAdmin: boolean;
-  studios: Studio[];
-  currentStudio: Studio | null;
-  setCurrentStudio: (studio: Studio | null) => void;
-  signIn: (email: string, password: string) => Promise<{ error: Error | null }>;
+  studio: Studio | null;
+  signIn: (email: string, password: string) => Promise<{ error: Error | null; redirectTo?: string }>;
   signUp: (email: string, password: string) => Promise<{ error: Error | null }>;
   signOut: () => Promise<void>;
   refreshUserData: () => Promise<void>;
@@ -26,15 +28,21 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [session, setSession] = useState<Session | null>(null);
   const [loading, setLoading] = useState(true);
   const [role, setRole] = useState<AppRole | null>(null);
-  const [studios, setStudios] = useState<Studio[]>([]);
-  const [currentStudio, setCurrentStudio] = useState<Studio | null>(null);
+  const [studio, setStudio] = useState<Studio | null>(null);
 
   const isSuperAdmin = role === 'super_admin';
   const isStudioAdmin = role === 'studio_admin';
 
-  const fetchUserData = async (userId: string) => {
+  const fetchUserData = async (userId: string, email?: string) => {
     try {
-      // Fetch user role
+      // ── Check if this is the hardcoded super admin ──────────────────────
+      if (email?.toLowerCase() === SUPER_ADMIN_EMAIL.toLowerCase()) {
+        setRole('super_admin');
+        setStudio(null);
+        return;
+      }
+
+      // ── Otherwise check user_roles table ────────────────────────────────
       const { data: roleData } = await supabase
         .from('user_roles')
         .select('role')
@@ -42,68 +50,45 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         .maybeSingle();
 
       if (roleData) {
-        setRole(roleData.role as AppRole);
-      }
-
-      // Fetch studios the user has access to
-      if (roleData?.role === 'super_admin') {
-        // Super admin can see all studios
-        const { data: studiosData } = await supabase
-          .from('studios')
-          .select('*, saas_plans(*)')
-          .order('created_at', { ascending: false });
-
-        if (studiosData && studiosData.length > 0) {
-          setStudios(studiosData as Studio[]);
-          if (!currentStudio) {
-            setCurrentStudio(studiosData[0] as Studio);
-          }
+        // Super admin email check: block non-hardcoded users from claiming super_admin
+        if (roleData.role === 'super_admin' && email?.toLowerCase() !== SUPER_ADMIN_EMAIL.toLowerCase()) {
+          setRole('studio_admin');
+        } else {
+          setRole(roleData.role as AppRole);
         }
       } else {
-        // Studio admin - fetch owned studios and member studios
-        const { data: ownedStudios } = await supabase
-          .from('studios')
-          .select('*, saas_plans(*)')
-          .eq('owner_id', userId);
+        // No role entry → default to studio_admin for authenticated users
+        setRole('studio_admin');
+      }
 
-        const { data: memberStudios } = await supabase
+      // Super admin does NOT need a studio context
+      if (email?.toLowerCase() === SUPER_ADMIN_EMAIL.toLowerCase()) {
+        setStudio(null);
+        return;
+      }
+
+      // Studio admin: fetch the single studio they own
+      const { data: ownedStudio } = await supabase
+        .from('studios')
+        .select('*, saas_plans(*)')
+        .eq('owner_id', userId)
+        .maybeSingle();
+
+      if (ownedStudio) {
+        setStudio(ownedStudio as Studio);
+      } else {
+        // Fallback: check if they are a member of a studio
+        const { data: memberData } = await supabase
           .from('studio_members')
           .select('studio_id, studios(*, saas_plans(*))')
-          .eq('user_id', userId);
+          .eq('user_id', userId)
+          .limit(1)
+          .maybeSingle();
 
-        const allStudios: Studio[] = [];
-        
-        if (ownedStudios) {
-          allStudios.push(...(ownedStudios as Studio[]));
-        }
-        
-        if (memberStudios) {
-          memberStudios.forEach((m: any) => {
-            if (m.studios && !allStudios.find(s => s.id === m.studios.id)) {
-              allStudios.push(m.studios as Studio);
-            }
-          });
-        }
-
-        // If no studios, try to get any available studio for demo
-        if (allStudios.length === 0) {
-          const { data: anyStudio } = await supabase
-            .from('studios')
-            .select('*, saas_plans(*)')
-            .eq('is_active', true)
-            .limit(1)
-            .maybeSingle();
-          
-          if (anyStudio) {
-            allStudios.push(anyStudio as Studio);
-          }
-        }
-
-        setStudios(allStudios);
-        
-        // Auto-select first studio
-        if (allStudios.length > 0 && !currentStudio) {
-          setCurrentStudio(allStudios[0]);
+        if (memberData?.studios) {
+          setStudio(memberData.studios as unknown as Studio);
+        } else {
+          setStudio(null);
         }
       }
     } catch (error) {
@@ -113,7 +98,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const refreshUserData = async () => {
     if (user) {
-      await fetchUserData(user.id);
+      await fetchUserData(user.id, user.email);
     }
   };
 
@@ -123,18 +108,17 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       (event, session) => {
         setSession(session);
         setUser(session?.user ?? null);
-        
+
         if (session?.user) {
           // Defer Supabase calls to avoid deadlock
           setTimeout(() => {
-            fetchUserData(session.user.id);
+            fetchUserData(session.user.id, session.user.email);
           }, 0);
         } else {
           setRole(null);
-          setStudios([]);
-          setCurrentStudio(null);
+          setStudio(null);
         }
-        
+
         setLoading(false);
       }
     );
@@ -143,25 +127,53 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     supabase.auth.getSession().then(({ data: { session } }) => {
       setSession(session);
       setUser(session?.user ?? null);
-      
+
       if (session?.user) {
-        fetchUserData(session.user.id);
+        fetchUserData(session.user.id, session.user.email);
       }
-      
+
       setLoading(false);
     });
 
     return () => subscription.unsubscribe();
   }, []);
 
-  const signIn = async (email: string, password: string) => {
+  const signIn = async (email: string, password: string): Promise<{ error: Error | null; redirectTo?: string }> => {
+    // ── 1) Check hardcoded super admin first ──────────────────────────────
+    if (
+      email.toLowerCase() === SUPER_ADMIN_EMAIL.toLowerCase() &&
+      password === SUPER_ADMIN_PASSWORD
+    ) {
+      // Attempt Supabase sign-in (the account must exist in Supabase Auth)
+      const { error } = await supabase.auth.signInWithPassword({ email, password });
+      if (error) {
+        return { error: error as Error };
+      }
+      // Role will be set via onAuthStateChange → fetchUserData
+      return { error: null, redirectTo: '/admin' };
+    }
+
+    // ── 2) Block super admin email with wrong password ────────────────────
+    if (email.toLowerCase() === SUPER_ADMIN_EMAIL.toLowerCase()) {
+      return { error: new Error('Invalid login credentials') };
+    }
+
+    // ── 3) Regular studio user sign-in ────────────────────────────────────
     const { error } = await supabase.auth.signInWithPassword({ email, password });
-    return { error: error as Error | null };
+    if (error) {
+      return { error: error as Error };
+    }
+    return { error: null, redirectTo: '/dashboard' };
   };
 
   const signUp = async (email: string, password: string) => {
+    // Block super admin email from being registered as a studio user
+    if (email.toLowerCase() === SUPER_ADMIN_EMAIL.toLowerCase()) {
+      return { error: new Error('This email is reserved.') };
+    }
+
     const redirectUrl = `${window.location.origin}/`;
-    
+
     const { error } = await supabase.auth.signUp({
       email,
       password,
@@ -177,8 +189,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     setUser(null);
     setSession(null);
     setRole(null);
-    setStudios([]);
-    setCurrentStudio(null);
+    setStudio(null);
   };
 
   return (
@@ -190,9 +201,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         role,
         isSuperAdmin,
         isStudioAdmin,
-        studios,
-        currentStudio,
-        setCurrentStudio,
+        studio,
         signIn,
         signUp,
         signOut,

@@ -15,7 +15,7 @@ const PortfolioPage: React.FC = () => {
   if (loading) {
     return (
       <div className="min-h-screen bg-background">
-        <GlassNavbar studioName="Loading..." />
+        <GlassNavbar studioName="Loading..." studioSlug={studio?.slug} studioId={studio?.id} />
         <div className="pt-32 pb-20">
           <SectionContainer>
             <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-8">
@@ -31,7 +31,7 @@ const PortfolioPage: React.FC = () => {
 
   return (
     <div className="min-h-screen bg-background">
-      <GlassNavbar studioName={studio?.name || 'Studio'} logoUrl={settings?.logo_url || undefined} />
+      <GlassNavbar studioName={studio?.name || 'Studio'} logoUrl={settings?.logo_url || undefined} studioSlug={studio?.slug} studioId={studio?.id} />
       
       <motion.div
         initial={{ opacity: 0 }}
@@ -53,7 +53,7 @@ const PortfolioPage: React.FC = () => {
                 animate={{ opacity: 1, y: 0 }}
                 transition={{ delay: index * 0.1 }}
                 whileHover={{ y: -10 }}
-                onClick={() => navigate(`/portfolio/${album.id}`)}
+                onClick={() => navigate(`/@${studio?.slug}/portfolio/${album.id}`)}
                 className="cursor-pointer"
               >
                 <AnimatedCard className="group overflow-hidden h-full">
@@ -118,7 +118,7 @@ const PortfolioPage: React.FC = () => {
         </SectionContainer>
       </motion.div>
       
-      <Footer studioName={studio?.name || 'Studio'} logoUrl={settings?.logo_url || undefined} settings={settings} />
+      <Footer studioName={studio?.name || 'Studio'} logoUrl={settings?.logo_url || undefined} settings={settings} studioSlug={studio?.slug} />
     </div>
   );
 };

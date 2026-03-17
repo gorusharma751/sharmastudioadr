@@ -14,85 +14,75 @@ import {
   LogOut,
   Menu,
   X,
-  ChevronDown,
   ExternalLink,
   Users,
   Sliders,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { useAuth } from '@/contexts/AuthContext';
-import { supabase } from '@/integrations/supabase/client';
 import { cn } from '@/lib/utils';
 import { Skeleton } from '@/components/ui/skeleton';
+import { ROUTES } from '@/lib/routes';
 
 const StudioAdminLayout: React.FC = () => {
-  const [sidebarOpen, setSidebarOpen] = React.useState(true);
   const [mobileMenuOpen, setMobileMenuOpen] = React.useState(false);
-  const { signOut, user, loading, currentStudio, studios, setCurrentStudio, isStudioAdmin, isSuperAdmin } = useAuth();
-  const [studioDropdownOpen, setStudioDropdownOpen] = React.useState(false);
+  const { signOut, user, loading, studio, isStudioAdmin, isSuperAdmin } = useAuth();
   const location = useLocation();
   const navigate = useNavigate();
-  const [loadingStudio, setLoadingStudio] = React.useState(false);
 
-  // Redirect if not authenticated or not admin
+  // Redirect if not authenticated or wrong role
   useEffect(() => {
     if (!loading && !user) {
-      navigate('/auth');
+      navigate(ROUTES.LOGIN_STUDIO);
     }
-  }, [user, loading, navigate]);
-
-  // Auto-fetch a studio if none is set
-  useEffect(() => {
-    const fetchDefaultStudio = async () => {
-      if (!currentStudio && user && !loadingStudio) {
-        setLoadingStudio(true);
-        try {
-          const { data } = await supabase
-            .from('studios')
-            .select('*, saas_plans(*)')
-            .eq('is_active', true)
-            .limit(1)
-            .maybeSingle();
-          
-          if (data) {
-            setCurrentStudio(data as any);
-          }
-        } catch (e) {
-          console.error('Error fetching default studio:', e);
-        } finally {
-          setLoadingStudio(false);
-        }
-      }
-    };
-    fetchDefaultStudio();
-  }, [currentStudio, user, loadingStudio, setCurrentStudio]);
+    // Super admin must NEVER access studio dashboard
+    if (!loading && user && isSuperAdmin) {
+      navigate(ROUTES.ADMIN);
+    }
+    // Non-studio-admin users (e.g. no role assigned yet) get sent to login
+    if (!loading && user && !isStudioAdmin && !isSuperAdmin) {
+      navigate(ROUTES.LOGIN_STUDIO);
+    }
+  }, [user, loading, isSuperAdmin, isStudioAdmin, navigate]);
 
   // Close mobile menu on route change
   useEffect(() => {
     setMobileMenuOpen(false);
   }, [location.pathname]);
 
+  // Add noindex meta for dashboard pages
+  useEffect(() => {
+    const meta = document.createElement('meta');
+    meta.name = 'robots';
+    meta.content = 'noindex, nofollow';
+    document.head.appendChild(meta);
+    return () => {
+      if (meta.parentNode) {
+        meta.parentNode.removeChild(meta);
+      }
+    };
+  }, []);
+
   const navItems = [
-    { label: 'Dashboard', href: '/admin', icon: LayoutDashboard },
-    { label: 'Studio Settings', href: '/admin/settings', icon: Settings },
-    { label: 'Pages', href: '/admin/pages', icon: FileText },
-    { label: 'Services', href: '/admin/services', icon: Briefcase },
-    { label: 'Portfolio', href: '/admin/portfolio', icon: Camera },
-    { label: 'Bookings', href: '/admin/bookings', icon: Calendar },
-    { label: 'Event Albums', href: '/admin/albums', icon: Image },
-    { label: 'Album Settings', href: '/admin/album-settings', icon: Sliders },
-    { label: 'Leads', href: '/admin/leads', icon: Users },
-    { label: 'Find Your Photos', href: '/admin/find-photos', icon: QrCode },
-    { label: 'Invitations', href: '/admin/invitations', icon: Heart },
+    { label: 'Dashboard', href: ROUTES.DASHBOARD, icon: LayoutDashboard },
+    { label: 'Studio Settings', href: ROUTES.DASHBOARD_SETTINGS, icon: Settings },
+    { label: 'Pages', href: ROUTES.DASHBOARD_PAGES, icon: FileText },
+    { label: 'Services', href: ROUTES.DASHBOARD_SERVICES, icon: Briefcase },
+    { label: 'Portfolio', href: ROUTES.DASHBOARD_PORTFOLIO, icon: Camera },
+    { label: 'Bookings', href: ROUTES.DASHBOARD_BOOKINGS, icon: Calendar },
+    { label: 'Event Albums', href: ROUTES.DASHBOARD_ALBUMS, icon: Image },
+    { label: 'Album Settings', href: ROUTES.DASHBOARD_ALBUM_SETTINGS, icon: Sliders },
+    { label: 'Leads', href: ROUTES.DASHBOARD_LEADS, icon: Users },
+    { label: 'Find Your Photos', href: ROUTES.DASHBOARD_FIND_PHOTOS, icon: QrCode },
+    { label: 'Invitations', href: ROUTES.DASHBOARD_INVITATIONS, icon: Heart },
   ];
 
   const handleSignOut = async () => {
     await signOut();
-    navigate('/auth');
+    navigate(ROUTES.LOGIN_STUDIO);
   };
 
-  // Show loading while checking auth or loading studio
-  if (loading || loadingStudio) {
+  if (loading) {
     return (
       <div className="min-h-screen bg-background flex items-center justify-center">
         <div className="text-center space-y-4">
@@ -104,173 +94,93 @@ const StudioAdminLayout: React.FC = () => {
     );
   }
 
-  // Redirect handled by useEffect, but prevent render if not logged in
-  if (!user) {
-    return null;
-  }
+  if (!user) return null;
+
+  const studioPublicUrl = studio?.slug ? `/@${studio.slug}` : '/';
 
   return (
     <div className="min-h-screen bg-background flex">
-      {/* Sidebar - Desktop */}
-      <motion.aside
-        initial={false}
-        animate={{ width: sidebarOpen ? 280 : 80 }}
-        transition={{ duration: 0.3 }}
-        className={cn(
-          'hidden lg:flex flex-col bg-sidebar border-r border-sidebar-border',
-          'fixed left-0 top-0 bottom-0 z-40'
-        )}
-      >
-        {/* Studio Selector */}
+      {/* Sidebar - Desktop (fixed width, no collapse) */}
+      <aside className="hidden lg:flex flex-col w-[280px] bg-sidebar border-r border-sidebar-border fixed left-0 top-0 bottom-0 z-40">
+        {/* Studio Branding */}
         <div className="p-4 border-b border-sidebar-border">
-          {sidebarOpen ? (
-            <div className="relative">
-              <button
-                onClick={() => setStudioDropdownOpen(!studioDropdownOpen)}
-                className="w-full flex items-center gap-3 p-3 rounded-lg bg-sidebar-accent/50 hover:bg-sidebar-accent transition-colors"
-              >
-                <div className="h-10 w-10 rounded-lg bg-gradient-gold flex items-center justify-center flex-shrink-0">
-                  <Camera className="text-primary-foreground" size={18} />
-                </div>
-                <div className="flex-1 text-left min-w-0">
-                  <p className="font-medium text-sidebar-foreground truncate">
-                    {currentStudio?.name || 'Select Studio'}
-                  </p>
-                  <p className="text-xs text-muted-foreground truncate">
-                    /{currentStudio?.slug || 'no-studio'}
-                  </p>
-                </div>
-                <ChevronDown
-                  size={16}
-                  className={cn(
-                    'text-muted-foreground transition-transform',
-                    studioDropdownOpen && 'rotate-180'
-                  )}
-                />
-              </button>
-
-              {studioDropdownOpen && studios.length > 1 && (
-                <motion.div
-                  initial={{ opacity: 0, y: -10 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  className="absolute top-full left-0 right-0 mt-2 bg-popover border border-border rounded-lg shadow-lg z-50 overflow-hidden"
-                >
-                  {studios.map((studio) => (
-                    <button
-                      key={studio.id}
-                      onClick={() => {
-                        setCurrentStudio(studio);
-                        setStudioDropdownOpen(false);
-                      }}
-                      className={cn(
-                        'w-full flex items-center gap-3 p-3 hover:bg-sidebar-accent/50 transition-colors',
-                        currentStudio?.id === studio.id && 'bg-sidebar-accent'
-                      )}
-                    >
-                      <div className="h-8 w-8 rounded-lg bg-secondary flex items-center justify-center">
-                        <span className="text-sm font-medium">
-                          {studio.name.charAt(0)}
-                        </span>
-                      </div>
-                      <div className="flex-1 text-left">
-                        <p className="text-sm font-medium text-foreground">
-                          {studio.name}
-                        </p>
-                      </div>
-                    </button>
-                  ))}
-                </motion.div>
-              )}
+          <div className="flex items-center gap-3 p-3 rounded-lg bg-sidebar-accent/50">
+            <div className="h-10 w-10 rounded-lg bg-gradient-gold flex items-center justify-center flex-shrink-0">
+              <Camera className="text-primary-foreground" size={20} />
             </div>
-          ) : (
-            <div className="flex justify-center">
-              <div className="h-10 w-10 rounded-lg bg-gradient-gold flex items-center justify-center">
-                <Camera className="text-primary-foreground" size={18} />
-              </div>
+            <div className="flex-1 min-w-0">
+              <p className="font-display font-semibold text-sidebar-foreground truncate">
+                {studio?.name || 'My Studio'}
+              </p>
+              <p className="text-xs text-muted-foreground truncate">
+                /{studio?.slug || 'studio'}
+              </p>
             </div>
-          )}
+          </div>
         </div>
 
-        {/* Toggle Button */}
-        <button
-          onClick={() => setSidebarOpen(!sidebarOpen)}
-          className="absolute -right-3 top-24 w-6 h-6 rounded-full bg-primary text-primary-foreground flex items-center justify-center hover:bg-primary/80 transition-colors"
-        >
-          {sidebarOpen ? '←' : '→'}
-        </button>
-
         {/* Navigation */}
-        <nav className="flex-1 px-4 py-4 space-y-1 overflow-y-auto">
+        <nav className="flex-1 px-3 py-3 space-y-0.5 overflow-y-auto">
           {navItems.map((item) => {
             const isActive = location.pathname === item.href;
             const Icon = item.icon;
-
             return (
               <Link
                 key={item.href}
                 to={item.href}
                 className={cn(
-                  'flex items-center gap-3 px-4 py-3 rounded-lg transition-colors',
+                  'flex items-center gap-3 px-3 py-2.5 rounded-lg transition-colors',
                   isActive
                     ? 'bg-sidebar-accent text-sidebar-primary'
                     : 'text-sidebar-foreground hover:bg-sidebar-accent/50'
                 )}
               >
-                <Icon size={20} />
-                {sidebarOpen && <span>{item.label}</span>}
+                <div className="w-9 h-9 flex items-center justify-center flex-shrink-0">
+                  <Icon size={20} />
+                </div>
+                <span className="text-sm font-medium">{item.label}</span>
               </Link>
             );
           })}
         </nav>
 
-        {/* View Website Link */}
-        <div className="px-4 pb-4">
+        {/* View Website */}
+        <div className="px-3 pb-3">
           <Link
-            to="/"
+            to={studioPublicUrl}
             target="_blank"
-            className={cn(
-              'flex items-center gap-2 px-4 py-3 rounded-lg',
-              'bg-primary/10 text-primary hover:bg-primary/20 transition-colors',
-              !sidebarOpen && 'justify-center'
-            )}
+            className="flex items-center gap-3 px-3 py-2.5 rounded-lg bg-primary/10 text-primary hover:bg-primary/20 transition-colors"
           >
-            <ExternalLink size={18} />
-            {sidebarOpen && <span>View Website</span>}
+            <div className="w-9 h-9 flex items-center justify-center">
+              <ExternalLink size={20} />
+            </div>
+            <span className="text-sm font-medium">View Website</span>
           </Link>
         </div>
 
         {/* User Section */}
         <div className="p-4 border-t border-sidebar-border">
-          {sidebarOpen ? (
-            <div className="flex items-center gap-3 mb-3">
-              <div className="w-10 h-10 rounded-full bg-sidebar-accent flex items-center justify-center">
-                <span className="text-sm font-medium text-sidebar-foreground">
-                  {user?.email?.charAt(0).toUpperCase()}
-                </span>
-              </div>
-              <div className="flex-1 min-w-0">
-                <p className="text-sm font-medium text-sidebar-foreground truncate">
-                  Studio Admin
-                </p>
-                <p className="text-xs text-muted-foreground truncate">
-                  {user?.email}
-                </p>
-              </div>
+          <div className="flex items-center gap-3 mb-3">
+            <div className="w-10 h-10 rounded-full bg-sidebar-accent flex items-center justify-center">
+              <span className="text-sm font-medium text-sidebar-foreground">
+                {user?.email?.charAt(0).toUpperCase()}
+              </span>
             </div>
-          ) : null}
+            <div className="flex-1 min-w-0">
+              <p className="text-sm font-medium text-sidebar-foreground truncate">Studio Admin</p>
+              <p className="text-xs text-muted-foreground truncate">{user?.email}</p>
+            </div>
+          </div>
           <Button
             variant="ghost"
-            className={cn(
-              'text-sidebar-foreground hover:bg-sidebar-accent',
-              sidebarOpen ? 'w-full justify-start' : 'w-full justify-center'
-            )}
+            className="w-full justify-start text-sidebar-foreground hover:bg-sidebar-accent"
             onClick={handleSignOut}
           >
             <LogOut size={18} />
-            {sidebarOpen && <span className="ml-2">Sign Out</span>}
+            <span className="ml-2">Sign Out</span>
           </Button>
         </div>
-      </motion.aside>
+      </aside>
 
       {/* Mobile Header */}
       <div className="lg:hidden fixed top-0 left-0 right-0 h-16 bg-sidebar border-b border-sidebar-border z-50 flex items-center justify-between px-4">
@@ -278,14 +188,11 @@ const StudioAdminLayout: React.FC = () => {
           <div className="h-8 w-8 rounded-lg bg-gradient-gold flex items-center justify-center">
             <Camera className="text-primary-foreground" size={16} />
           </div>
-          <span className="font-display text-lg font-bold text-sidebar-foreground truncate max-w-[150px]">
-            {currentStudio?.name || 'Studio'}
+          <span className="font-display text-lg font-bold text-sidebar-foreground truncate max-w-[180px]">
+            {studio?.name || 'Studio'}
           </span>
         </div>
-        <button
-          onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
-          className="p-2 text-sidebar-foreground"
-        >
+        <button onClick={() => setMobileMenuOpen(!mobileMenuOpen)} className="p-2 text-sidebar-foreground">
           {mobileMenuOpen ? <X size={24} /> : <Menu size={24} />}
         </button>
       </div>
@@ -293,9 +200,7 @@ const StudioAdminLayout: React.FC = () => {
       {/* Mobile Menu Overlay */}
       {mobileMenuOpen && (
         <motion.div
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
-          exit={{ opacity: 0 }}
+          initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
           className="lg:hidden fixed inset-0 bg-background/95 backdrop-blur-sm z-40"
           onClick={() => setMobileMenuOpen(false)}
         />
@@ -312,48 +217,27 @@ const StudioAdminLayout: React.FC = () => {
           {navItems.map((item) => {
             const isActive = location.pathname === item.href;
             const Icon = item.icon;
-
             return (
-              <Link
-                key={item.href}
-                to={item.href}
-                onClick={() => setMobileMenuOpen(false)}
+              <Link key={item.href} to={item.href} onClick={() => setMobileMenuOpen(false)}
                 className={cn(
                   'flex items-center gap-3 px-4 py-3 rounded-lg transition-colors',
-                  isActive
-                    ? 'bg-sidebar-accent text-sidebar-primary'
-                    : 'text-sidebar-foreground hover:bg-sidebar-accent/50'
-                )}
-              >
+                  isActive ? 'bg-sidebar-accent text-sidebar-primary' : 'text-sidebar-foreground hover:bg-sidebar-accent/50'
+                )}>
                 <Icon size={20} />
                 <span>{item.label}</span>
               </Link>
             );
           })}
         </nav>
-
-        {/* Mobile Sign Out */}
         <div className="p-4 border-t border-sidebar-border">
-          <Button
-            variant="ghost"
-            className="w-full justify-start text-sidebar-foreground"
-            onClick={handleSignOut}
-          >
-            <LogOut size={18} className="mr-2" />
-            Sign Out
+          <Button variant="ghost" className="w-full justify-start text-sidebar-foreground" onClick={handleSignOut}>
+            <LogOut size={18} className="mr-2" /> Sign Out
           </Button>
         </div>
       </motion.div>
 
       {/* Main Content */}
-      <main
-        className={cn(
-          'flex-1 min-h-screen',
-          sidebarOpen ? 'lg:ml-[280px]' : 'lg:ml-20',
-          'pt-16 lg:pt-0',
-          'transition-all duration-300'
-        )}
-      >
+      <main className="flex-1 min-h-screen lg:ml-[280px] pt-16 lg:pt-0 transition-all duration-300">
         <div className="p-4 md:p-6 lg:p-8">
           <Outlet />
         </div>

@@ -27,7 +27,7 @@ interface PageRow {
 }
 
 const PagesManager: React.FC = () => {
-  const { currentStudio } = useAuth();
+  const { studio } = useAuth();
   const { toast } = useToast();
   const [pages, setPages] = useState<PageRow[]>([]);
   const [loading, setLoading] = useState(true);
@@ -45,16 +45,16 @@ const PagesManager: React.FC = () => {
   });
 
   useEffect(() => {
-    if (currentStudio?.id) fetchPages();
-  }, [currentStudio?.id]);
+    if (studio?.id) fetchPages();
+  }, [studio?.id]);
 
   const fetchPages = async () => {
-    if (!currentStudio?.id) return;
+    if (!studio?.id) return;
     try {
       const { data, error } = await supabase
         .from('pages')
         .select('*')
-        .eq('studio_id', currentStudio.id)
+        .eq('studio_id', studio.id)
         .order('sort_order');
       if (error) throw error;
       setPages((data || []) as PageRow[]);
@@ -99,14 +99,14 @@ const PagesManager: React.FC = () => {
   };
 
   const handleSave = async () => {
-    if (!currentStudio?.id || !formData.title) {
+    if (!studio?.id || !formData.title) {
       toast({ title: 'Error', description: 'Title is required', variant: 'destructive' });
       return;
     }
     const slug = formData.slug || generateSlug(formData.title);
     try {
       const payload: any = {
-        studio_id: currentStudio.id,
+        studio_id: studio.id,
         title: formData.title,
         slug,
         content: formData.content,

@@ -81,7 +81,7 @@ const AlbumDetailPage: React.FC = () => {
   if (loading) {
     return (
       <div className="min-h-screen bg-background">
-        <GlassNavbar studioName={studio?.name || 'Studio'} logoUrl={settings?.logo_url || undefined} />
+        <GlassNavbar studioName={studio?.name || 'Studio'} logoUrl={settings?.logo_url || undefined} studioSlug={studio?.slug} studioId={studio?.id} />
         <div className="pt-32 pb-20">
           <SectionContainer>
             <Skeleton className="h-12 w-64 mb-8" />
@@ -99,26 +99,26 @@ const AlbumDetailPage: React.FC = () => {
   if (!album) {
     return (
       <div className="min-h-screen bg-background">
-        <GlassNavbar studioName={studio?.name || 'Studio'} logoUrl={settings?.logo_url || undefined} />
+        <GlassNavbar studioName={studio?.name || 'Studio'} logoUrl={settings?.logo_url || undefined} studioSlug={studio?.slug} studioId={studio?.id} />
         <div className="pt-32 pb-20">
           <SectionContainer>
             <div className="text-center py-20">
               <h2 className="text-2xl font-semibold mb-4">Album Not Found</h2>
-              <Button onClick={() => navigate('/portfolio')}>
+              <Button onClick={() => navigate(`/@${studio?.slug}/portfolio`)}>
                 <ArrowLeft className="mr-2" size={18} />
                 Back to Portfolio
               </Button>
             </div>
           </SectionContainer>
         </div>
-        <Footer studioName={studio?.name || 'Studio'} logoUrl={settings?.logo_url || undefined} settings={settings} />
+        <Footer studioName={studio?.name || 'Studio'} logoUrl={settings?.logo_url || undefined} settings={settings} studioSlug={studio?.slug} />
       </div>
     );
   }
 
   return (
     <div className="min-h-screen bg-background">
-      <GlassNavbar studioName={studio?.name || 'Studio'} logoUrl={settings?.logo_url || undefined} />
+      <GlassNavbar studioName={studio?.name || 'Studio'} logoUrl={settings?.logo_url || undefined} studioSlug={studio?.slug} studioId={studio?.id} />
       
       <motion.div
         initial={{ opacity: 0 }}
@@ -134,7 +134,7 @@ const AlbumDetailPage: React.FC = () => {
           >
             <Button 
               variant="ghost" 
-              onClick={() => navigate('/portfolio')}
+              onClick={() => navigate(`/@${studio?.slug}/portfolio`)}
               className="mb-4"
             >
               <ArrowLeft className="mr-2" size={18} />
@@ -249,7 +249,7 @@ const AlbumDetailPage: React.FC = () => {
         )}
       </AnimatePresence>
       
-      <Footer studioName={studio?.name || 'Studio'} logoUrl={settings?.logo_url || undefined} settings={settings} />
+      <Footer studioName={studio?.name || 'Studio'} logoUrl={settings?.logo_url || undefined} settings={settings} studioSlug={studio?.slug} />
     </div>
   );
 };

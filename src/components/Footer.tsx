@@ -6,6 +6,7 @@ import { cn } from '@/lib/utils';
 interface FooterProps {
   studioName?: string;
   logoUrl?: string;
+  studioSlug?: string;
   settings?: {
     contact_email?: string | null;
     contact_phone?: string | null;
@@ -20,17 +21,19 @@ interface FooterProps {
 const Footer: React.FC<FooterProps> = ({
   studioName = 'Studio',
   logoUrl,
+  studioSlug,
   settings,
   className,
 }) => {
   const currentYear = new Date().getFullYear();
+  const basePath = studioSlug ? `/@${studioSlug}` : '';
 
   const quickLinks = [
-    { label: 'Home', href: '/' },
-    { label: 'Services', href: '/services' },
-    { label: 'Portfolio', href: '/portfolio' },
-    { label: 'About', href: '/about' },
-    { label: 'Contact', href: '/contact' },
+    { label: 'Home', href: basePath || '/' },
+    { label: 'Services', href: `${basePath}/services` },
+    { label: 'Portfolio', href: `${basePath}/portfolio` },
+    { label: 'About', href: `${basePath}/about` },
+    { label: 'Contact', href: `${basePath}/contact` },
   ];
 
   const services = [
@@ -47,7 +50,7 @@ const Footer: React.FC<FooterProps> = ({
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-12">
           {/* Brand Column */}
           <div className="lg:col-span-1">
-            <Link to="/" className="flex items-center gap-3 mb-6">
+            <Link to={basePath || '/'} className="flex items-center gap-3 mb-6">
               {logoUrl ? (
                 <img src={logoUrl} alt={studioName} className="h-10 w-auto" />
               ) : (
@@ -62,10 +65,10 @@ const Footer: React.FC<FooterProps> = ({
               </span>
             </Link>
             <p className="text-muted-foreground text-sm mb-6">
-              Capturing your precious moments with artistry and passion. 
+              Capturing your precious moments with artistry and passion.
               Let us tell your story through our lens.
             </p>
-            
+
             {/* Social Links */}
             <div className="flex gap-4">
               {settings?.social_instagram && (
@@ -175,13 +178,13 @@ const Footer: React.FC<FooterProps> = ({
         {/* Bottom Bar */}
         <div className="mt-12 pt-8 border-t border-border flex flex-col md:flex-row justify-between items-center gap-4">
           <p className="text-muted-foreground text-sm">
-            © {currentYear} {studioName}. All rights reserved.
+            &copy; {currentYear} {studioName}. All rights reserved.
           </p>
           <div className="flex gap-6 text-sm">
-            <Link to="/privacy" className="text-muted-foreground hover:text-primary transition-colors">
+            <Link to={`${basePath}/privacy`} className="text-muted-foreground hover:text-primary transition-colors">
               Privacy Policy
             </Link>
-            <Link to="/terms" className="text-muted-foreground hover:text-primary transition-colors">
+            <Link to={`${basePath}/terms`} className="text-muted-foreground hover:text-primary transition-colors">
               Terms of Service
             </Link>
           </div>

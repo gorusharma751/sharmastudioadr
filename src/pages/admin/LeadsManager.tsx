@@ -20,7 +20,7 @@ interface Lead {
 }
 
 const LeadsManager: React.FC = () => {
-  const { currentStudio } = useAuth();
+  const { studio } = useAuth();
   const { toast } = useToast();
   const [leads, setLeads] = useState<Lead[]>([]);
   const [albums, setAlbums] = useState<{ id: string; name: string }[]>([]);
@@ -31,29 +31,29 @@ const LeadsManager: React.FC = () => {
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc');
 
   useEffect(() => {
-    if (currentStudio?.id) {
+    if (studio?.id) {
       fetchLeads();
       fetchAlbums();
     }
-  }, [currentStudio?.id]);
+  }, [studio?.id]);
 
   const fetchAlbums = async () => {
-    if (!currentStudio?.id) return;
+    if (!studio?.id) return;
     const { data } = await supabase
       .from('program_albums')
       .select('id, name')
-      .eq('studio_id', currentStudio.id)
+      .eq('studio_id', studio.id)
       .order('name');
     if (data) setAlbums(data);
   };
 
   const fetchLeads = async () => {
-    if (!currentStudio?.id) return;
+    if (!studio?.id) return;
     try {
       const { data, error } = await supabase
         .from('album_leads')
         .select('*, program_albums(name)')
-        .eq('studio_id', currentStudio.id)
+        .eq('studio_id', studio.id)
         .order('created_at', { ascending: false });
 
       if (error) throw error;

@@ -15,7 +15,7 @@ import { getDirectImageUrl } from '@/lib/imageUtils';
 import QrCodeWithLogo from '@/components/QrCodeWithLogo';
 
 const ProgramsManager: React.FC = () => {
-  const { currentStudio } = useAuth();
+  const { studio } = useAuth();
   const { toast } = useToast();
   const [programs, setPrograms] = useState<ProgramAlbum[]>([]);
   const [selectedProgram, setSelectedProgram] = useState<ProgramAlbum | null>(null);
@@ -40,23 +40,23 @@ const ProgramsManager: React.FC = () => {
   const [studioLogoUrl, setStudioLogoUrl] = useState<string | undefined>();
 
   useEffect(() => {
-    if (currentStudio?.id) {
-      supabase.from('studio_settings').select('logo_url').eq('studio_id', currentStudio.id).maybeSingle()
+    if (studio?.id) {
+      supabase.from('studio_settings').select('logo_url').eq('studio_id', studio.id).maybeSingle()
         .then(({ data }) => { if (data?.logo_url) setStudioLogoUrl(data.logo_url); });
     }
-  }, [currentStudio?.id]);
+  }, [studio?.id]);
 
   useEffect(() => {
-    if (currentStudio?.id) fetchPrograms();
-  }, [currentStudio?.id]);
+    if (studio?.id) fetchPrograms();
+  }, [studio?.id]);
 
   const fetchPrograms = async () => {
-    if (!currentStudio?.id) return;
+    if (!studio?.id) return;
     try {
       const { data, error } = await supabase
         .from('program_albums')
         .select('*')
-        .eq('studio_id', currentStudio.id)
+        .eq('studio_id', studio.id)
         .order('created_at', { ascending: false });
       if (error) throw error;
       setPrograms((data || []) as ProgramAlbum[]);
@@ -110,13 +110,13 @@ const ProgramsManager: React.FC = () => {
   };
 
   const handleSaveProgram = async () => {
-    if (!currentStudio?.id || !programFormData.name) {
+    if (!studio?.id || !programFormData.name) {
       toast({ title: 'Error', description: 'Album name is required', variant: 'destructive' });
       return;
     }
     try {
       const payload = {
-        studio_id: currentStudio.id,
+        studio_id: studio.id,
         name: programFormData.name,
         description: programFormData.description || null,
         event_date: programFormData.event_date || null,
@@ -158,10 +158,10 @@ const ProgramsManager: React.FC = () => {
   };
 
   const handleAddImage = async () => {
-    if (!selectedProgram || !currentStudio?.id || !imageFormData.image_url) return;
+    if (!selectedProgram || !studio?.id || !imageFormData.image_url) return;
     try {
       const { error } = await supabase.from('program_images').insert({
-        studio_id: currentStudio.id,
+        studio_id: studio.id,
         program_album_id: selectedProgram.id,
         image_url: imageFormData.image_url,
         caption: imageFormData.caption || null,
@@ -178,11 +178,11 @@ const ProgramsManager: React.FC = () => {
   };
 
   const handleBulkAddImages = async () => {
-    if (!selectedProgram || !currentStudio?.id || !bulkUrls.trim()) return;
+    if (!selectedProgram || !studio?.id || !bulkUrls.trim()) return;
     const urls = bulkUrls.split('\n').map(u => u.trim()).filter(Boolean);
     try {
       const inserts = urls.map((url, i) => ({
-        studio_id: currentStudio.id,
+        studio_id: studio.id,
         program_album_id: selectedProgram.id,
         image_url: url,
         sort_order: programImages.length + i,
@@ -440,7 +440,7 @@ const ProgramsManager: React.FC = () => {
               <QrCodeWithLogo
                 albumUrl={`${window.location.origin}/digital-album/${selectedProgram.id}`}
                 logoUrl={studioLogoUrl}
-                studioName={currentStudio?.name || 'Studio'}
+                studioName={studio?.name || 'Studio'}
               />
               <p className="text-sm text-muted-foreground break-all">{`${window.location.origin}/digital-album/${selectedProgram.id}`}</p>
               <Button variant="outline" onClick={() => copyAlbumUrl(selectedProgram)}>

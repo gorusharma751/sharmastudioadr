@@ -1,6 +1,6 @@
 // Multi-tenant Photography Studio SaaS Types
 
-export type AppRole = 'super_admin' | 'studio_admin';
+export type AppRole = 'super_admin' | 'studio_admin' | 'event_guest';
 
 export interface UserRole {
   id: string;

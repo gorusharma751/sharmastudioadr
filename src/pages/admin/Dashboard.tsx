@@ -1,13 +1,12 @@
 import React from 'react';
 import { motion } from 'framer-motion';
-import { Calendar, Image, Users, TrendingUp, Eye, Settings } from 'lucide-react';
-import { Button } from '@/components/ui/button';
+import { Calendar, Image, Users, TrendingUp, Eye, Settings, Plus, Upload } from 'lucide-react';
 import { StatCard } from '@/components/ui/shared';
 import { useAuth } from '@/contexts/AuthContext';
 import { Link } from 'react-router-dom';
 
-const StudioAdminDashboard: React.FC = () => {
-  const { currentStudio } = useAuth();
+const StudioDashboard: React.FC = () => {
+  const { studio } = useAuth();
 
   const stats = [
     { label: 'Total Bookings', value: '48', icon: <Calendar size={24} /> },
@@ -17,17 +16,19 @@ const StudioAdminDashboard: React.FC = () => {
   ];
 
   const quickActions = [
-    { label: 'View Website', icon: Eye, href: `/studio/${currentStudio?.slug}` },
-    { label: 'Studio Settings', icon: Settings, href: '/admin/settings' },
-    { label: 'Manage Bookings', icon: Calendar, href: '/admin/bookings' },
-    { label: 'Add Portfolio', icon: Image, href: '/admin/portfolio' },
+    { label: 'Create Event', icon: Plus, href: '/dashboard/albums' },
+    { label: 'Upload Photos', icon: Upload, href: '/dashboard/find-photos' },
+    { label: 'Manage Bookings', icon: Calendar, href: '/dashboard/bookings' },
+    { label: 'Add Portfolio', icon: Image, href: '/dashboard/portfolio' },
+    { label: 'View Website', icon: Eye, href: `/@${studio?.slug}` },
+    { label: 'Settings', icon: Settings, href: '/dashboard/settings' },
   ];
 
   return (
     <div className="space-y-8">
       <div>
         <h1 className="font-display text-3xl font-bold text-foreground">
-          Welcome, {currentStudio?.name || 'Studio'}
+          Welcome, {studio?.name || 'Studio'}
         </h1>
         <p className="text-muted-foreground">Here's what's happening with your studio</p>
       </div>
@@ -54,6 +55,7 @@ const StudioAdminDashboard: React.FC = () => {
                 key={action.label}
                 to={action.href}
                 className="flex items-center gap-3 p-4 rounded-lg bg-secondary/30 hover:bg-secondary/50 transition-colors"
+                {...(action.label === 'View Website' ? { target: '_blank' } : {})}
               >
                 <action.icon size={20} className="text-primary" />
                 <span className="font-medium text-foreground">{action.label}</span>
@@ -91,4 +93,4 @@ const StudioAdminDashboard: React.FC = () => {
   );
 };
 
-export default StudioAdminDashboard;
+export default StudioDashboard;

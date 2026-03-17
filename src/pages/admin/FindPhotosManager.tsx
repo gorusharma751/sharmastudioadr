@@ -86,7 +86,7 @@ const statusColors: Record<string, string> = {
 };
 
 const FindPhotosManager: React.FC = () => {
-  const { currentStudio } = useAuth();
+  const { studio } = useAuth();
   const { toast } = useToast();
   const [events, setEvents] = useState<Event[]>([]);
   const [requests, setRequests] = useState<PhotoSearchRequest[]>([]);
@@ -104,28 +104,28 @@ const FindPhotosManager: React.FC = () => {
   const [creating, setCreating] = useState(false);
 
   useEffect(() => {
-    if (currentStudio?.id) {
+    if (studio?.id) {
       fetchEvents();
       fetchRequests();
     }
-  }, [currentStudio?.id]);
+  }, [studio?.id]);
 
   const fetchEvents = async () => {
-    if (!currentStudio?.id) return;
+    if (!studio?.id) return;
     const { data, error } = await supabase
       .from('events')
       .select('*')
-      .eq('studio_id', currentStudio.id)
+      .eq('studio_id', studio.id)
       .order('created_at', { ascending: false });
     if (!error) setEvents((data as any[]) || []);
   };
 
   const fetchRequests = async () => {
-    if (!currentStudio?.id) return;
+    if (!studio?.id) return;
     const { data, error } = await supabase
       .from('photo_search_requests')
       .select('*')
-      .eq('studio_id', currentStudio.id)
+      .eq('studio_id', studio.id)
       .order('created_at', { ascending: false });
     if (!error) setRequests(data || []);
     setLoading(false);
@@ -178,14 +178,14 @@ const FindPhotosManager: React.FC = () => {
   };
 
   const createEvent = async () => {
-    if (!currentStudio?.id || !newEvent.name || !newEvent.api_event_id) {
+    if (!studio?.id || !newEvent.name || !newEvent.api_event_id) {
       toast({ title: 'Error', description: 'Event name and API Event ID are required', variant: 'destructive' });
       return;
     }
     setCreating(true);
     try {
       const { error } = await supabase.from('events').insert({
-        studio_id: currentStudio.id,
+        studio_id: studio.id,
         name: newEvent.name,
         venue: newEvent.venue || null,
         event_date: newEvent.event_date || null,

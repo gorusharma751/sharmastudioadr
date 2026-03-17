@@ -15,16 +15,18 @@ const Index: React.FC = () => {
   return (
     <div className="min-h-screen bg-background">
       <GlassNavbar
-        studioName={studio?.name || "StudioSaaS"}
+        studioName={studio?.name || "Studio"}
         logoUrl={settings?.logo_url || undefined}
+        studioSlug={studio?.slug}
+        studioId={studio?.id}
         showAuth={true}
-        onAuthClick={() => navigate("/auth")}
+        onAuthClick={() => navigate("/login")}
       />
       <HeroSection />
       <ServicesSection />
       <PortfolioSection />
       <BookingSection studioId={studio?.id || "demo"} />
-      <Footer studioName={studio?.name || "StudioSaaS"} logoUrl={settings?.logo_url || undefined} settings={settings} />
+      <Footer studioName={studio?.name || "Studio"} logoUrl={settings?.logo_url || undefined} studioSlug={studio?.slug} settings={settings} />
     </div>
   );
 };

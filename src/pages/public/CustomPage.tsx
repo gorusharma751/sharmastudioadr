@@ -21,7 +21,7 @@ interface CustomPageData {
 const CustomPage: React.FC = () => {
   const { slug } = useParams<{ slug: string }>();
   const navigate = useNavigate();
-  const { studio } = useStudio();
+  const { studio, settings } = useStudio();
   const [page, setPage] = useState<CustomPageData | null>(null);
   const [loading, setLoading] = useState(true);
   const [notFound, setNotFound] = useState(false);
@@ -63,7 +63,7 @@ const CustomPage: React.FC = () => {
   if (loading) {
     return (
       <div className="min-h-screen bg-background">
-        <GlassNavbar studioName={studioName} />
+        <GlassNavbar studioName={studioName} studioSlug={studio?.slug} studioId={studio?.id} />
         <div className="pt-32 pb-20">
           <SectionContainer>
             <Skeleton className="h-10 w-64 mb-6" />
@@ -79,7 +79,7 @@ const CustomPage: React.FC = () => {
   if (notFound || !page) {
     return (
       <div className="min-h-screen bg-background">
-        <GlassNavbar studioName={studioName} />
+        <GlassNavbar studioName={studioName} studioSlug={studio?.slug} studioId={studio?.id} />
         <div className="pt-32 pb-20">
           <SectionContainer>
             <motion.div
@@ -92,7 +92,7 @@ const CustomPage: React.FC = () => {
                 The page you're looking for doesn't exist or has been removed.
               </p>
               <button
-                onClick={() => navigate('/')}
+                onClick={() => navigate(`/@${studio?.slug}`)}
                 className="text-primary underline hover:no-underline font-medium"
               >
                 Return to Home
@@ -100,7 +100,7 @@ const CustomPage: React.FC = () => {
             </motion.div>
           </SectionContainer>
         </div>
-        <Footer studioName={studioName} />
+        <Footer studioName={studioName} studioSlug={studio?.slug} />
       </div>
     );
   }
@@ -112,7 +112,7 @@ const CustomPage: React.FC = () => {
 
   return (
     <div className="min-h-screen bg-background">
-      <GlassNavbar studioName={studioName} />
+      <GlassNavbar studioName={studioName} studioSlug={studio?.slug} studioId={studio?.id} />
 
       <motion.div
         initial={{ opacity: 0 }}
@@ -169,7 +169,7 @@ const CustomPage: React.FC = () => {
         </SectionContainer>
       </motion.div>
 
-      <Footer studioName={studioName} />
+      <Footer studioName={studioName} studioSlug={studio?.slug} />
     </div>
   );
 };
