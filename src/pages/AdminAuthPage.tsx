@@ -10,7 +10,7 @@ import { useNavigate } from 'react-router-dom';
 import { z } from 'zod';
 
 const authSchema = z.object({
-  email: z.string().email('Please enter a valid email address'),
+  email: z.string().trim().email('Please enter a valid email address'),
   password: z.string().min(6, 'Password must be at least 6 characters'),
 });
 
@@ -25,8 +25,8 @@ const AdminAuthPage: React.FC = () => {
   const navigate = useNavigate();
 
   useEffect(() => {
-    if (user && !authLoading && isSuperAdmin) {
-      navigate('/admin');
+    if (!authLoading && user && isSuperAdmin) {
+      navigate('/admin', { replace: true });
     }
   }, [user, authLoading, isSuperAdmin, navigate]);
 
@@ -53,9 +53,8 @@ const AdminAuthPage: React.FC = () => {
             : error.message,
           variant: 'destructive',
         });
-      } else {
-        toast({ title: 'Welcome Back!', description: 'Super Admin logged in.' });
       }
+      // Redirect happens via useEffect when role loads
     } catch (error) {
       if (error instanceof z.ZodError) {
         const newErrors: Record<string, string> = {};
@@ -68,6 +67,8 @@ const AdminAuthPage: React.FC = () => {
       setLoading(false);
     }
   };
+
+  if (authLoading) return null;
 
   return (
     <div className="min-h-screen flex items-center justify-center hero-gradient p-8">

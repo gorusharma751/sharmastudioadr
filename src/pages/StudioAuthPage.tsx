@@ -10,7 +10,7 @@ import { useNavigate } from 'react-router-dom';
 import { z } from 'zod';
 
 const authSchema = z.object({
-  email: z.string().email('Please enter a valid email address'),
+  email: z.string().trim().email('Please enter a valid email address'),
   password: z.string().min(6, 'Password must be at least 6 characters'),
 });
 
@@ -20,15 +20,20 @@ const StudioAuthPage: React.FC = () => {
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [formData, setFormData] = useState({ email: '', password: '' });
 
-  const { signIn, user, isStudioAdmin, loading: authLoading } = useAuth();
+  const { signIn, user, isStudioAdmin, isSuperAdmin, role, loading: authLoading } = useAuth();
   const { toast } = useToast();
   const navigate = useNavigate();
 
   useEffect(() => {
-    if (user && !authLoading && isStudioAdmin) {
-      navigate('/studio');
+    if (!authLoading && user && role) {
+      if (isStudioAdmin) {
+        navigate('/studio', { replace: true });
+      } else if (isSuperAdmin) {
+        // Super admin tried studio login - redirect to admin
+        navigate('/admin', { replace: true });
+      }
     }
-  }, [user, authLoading, isStudioAdmin, navigate]);
+  }, [user, authLoading, isStudioAdmin, isSuperAdmin, role, navigate]);
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const { name, value } = e.target;
@@ -53,9 +58,8 @@ const StudioAuthPage: React.FC = () => {
             : error.message,
           variant: 'destructive',
         });
-      } else {
-        toast({ title: 'Welcome Back!', description: 'Studio admin logged in.' });
       }
+      // Redirect happens via useEffect when role loads
     } catch (error) {
       if (error instanceof z.ZodError) {
         const newErrors: Record<string, string> = {};
@@ -68,6 +72,8 @@ const StudioAuthPage: React.FC = () => {
       setLoading(false);
     }
   };
+
+  if (authLoading) return null;
 
   return (
     <div className="min-h-screen flex hero-gradient">
@@ -145,12 +151,6 @@ const StudioAuthPage: React.FC = () => {
               <ArrowRight className="ml-2 group-hover:translate-x-1 transition-transform" size={18} />
             </Button>
           </form>
-
-          <div className="mt-4 text-center">
-            <button type="button" className="text-sm text-muted-foreground hover:text-primary transition-colors">
-              Forgot your password?
-            </button>
-          </div>
         </motion.div>
       </div>
     </div>

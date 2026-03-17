@@ -19,18 +19,18 @@ import { cn } from '@/lib/utils';
 
 const SuperAdminLayout: React.FC = () => {
   const [mobileMenuOpen, setMobileMenuOpen] = React.useState(false);
-  const { signOut, user, loading, isSuperAdmin } = useAuth();
+  const { signOut, user, loading, isSuperAdmin, role } = useAuth();
   const location = useLocation();
   const navigate = useNavigate();
 
   useEffect(() => {
     if (!loading && !user) {
-      navigate('/admin/login');
+      navigate('/admin/login', { replace: true });
     }
-    if (!loading && user && !isSuperAdmin) {
-      navigate('/studio');
+    if (!loading && user && role !== null && !isSuperAdmin) {
+      navigate('/studio', { replace: true });
     }
-  }, [user, loading, isSuperAdmin, navigate]);
+  }, [user, loading, isSuperAdmin, role, navigate]);
 
   useEffect(() => {
     setMobileMenuOpen(false);

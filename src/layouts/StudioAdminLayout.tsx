@@ -25,16 +25,19 @@ import { Skeleton } from '@/components/ui/skeleton';
 
 const StudioAdminLayout: React.FC = () => {
   const [mobileMenuOpen, setMobileMenuOpen] = React.useState(false);
-  const { signOut, user, loading, currentStudio, isStudioAdmin, isSuperAdmin } = useAuth();
+  const { signOut, user, loading, currentStudio, isStudioAdmin, isSuperAdmin, role } = useAuth();
   const location = useLocation();
   const navigate = useNavigate();
 
-  // Redirect if not authenticated
+  // Redirect if not authenticated or wrong role
   useEffect(() => {
     if (!loading && !user) {
-      navigate('/studio/login');
+      navigate('/studio/login', { replace: true });
     }
-  }, [user, loading, navigate]);
+    if (!loading && user && role !== null && !isStudioAdmin && !isSuperAdmin) {
+      navigate('/studio/login', { replace: true });
+    }
+  }, [user, loading, role, isStudioAdmin, isSuperAdmin, navigate]);
 
   // Close mobile menu on route change
   useEffect(() => {
