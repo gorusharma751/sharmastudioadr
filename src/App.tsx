@@ -103,6 +103,10 @@ const App = () => (
             <Route path="/admin" element={<SuperAdminLayout />}>
               <Route index element={<SuperAdminDashboard />} />
               <Route path="studios" element={<StudiosManager />} />
+              <Route path="plans" element={<PlansManager />} />
+              <Route path="users" element={<UsersManager />} />
+              <Route path="analytics" element={<AnalyticsPage />} />
+              <Route path="settings" element={<PlatformSettings />} />
             </Route>
 
             {/* ==================== */}
