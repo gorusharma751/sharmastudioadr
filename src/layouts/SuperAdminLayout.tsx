@@ -16,21 +16,34 @@ import {
 import { Button } from '@/components/ui/button';
 import { useAuth } from '@/contexts/AuthContext';
 import { cn } from '@/lib/utils';
+import { ROUTES } from '@/lib/routes';
 
 const SuperAdminLayout: React.FC = () => {
   const [mobileMenuOpen, setMobileMenuOpen] = React.useState(false);
-  const { signOut, user, loading, isSuperAdmin, role } = useAuth();
+  const { signOut, user, loading, isSuperAdmin } = useAuth();
   const location = useLocation();
   const navigate = useNavigate();
 
   useEffect(() => {
     if (!loading && !user) {
-      navigate('/admin/login', { replace: true });
+      navigate(ROUTES.LOGIN_ADMIN);
     }
-    if (!loading && user && role !== null && !isSuperAdmin) {
-      navigate('/studio', { replace: true });
+    if (!loading && user && !isSuperAdmin) {
+      navigate(ROUTES.LOGIN);
     }
-  }, [user, loading, isSuperAdmin, role, navigate]);
+  }, [user, loading, isSuperAdmin, navigate]);
+
+  useEffect(() => {
+    const meta = document.createElement('meta');
+    meta.name = 'robots';
+    meta.content = 'noindex, nofollow';
+    document.head.appendChild(meta);
+    return () => {
+      if (meta.parentNode) {
+        meta.parentNode.removeChild(meta);
+      }
+    };
+  }, []);
 
   useEffect(() => {
     setMobileMenuOpen(false);
@@ -47,7 +60,7 @@ const SuperAdminLayout: React.FC = () => {
 
   const handleSignOut = async () => {
     await signOut();
-    navigate('/admin/login');
+    navigate(ROUTES.LOGIN_ADMIN);
   };
 
   if (loading || (!user && !loading)) return null;
@@ -60,7 +73,7 @@ const SuperAdminLayout: React.FC = () => {
           <div className="h-10 w-10 rounded-xl bg-gradient-gold flex items-center justify-center flex-shrink-0">
             <Camera className="text-primary-foreground" size={20} />
           </div>
-          <span className="font-display text-xl font-bold text-sidebar-foreground">StudioSaaS</span>
+          <span className="font-display text-xl font-bold text-sidebar-foreground">Trivora StudioOS</span>
         </div>
 
         <nav className="flex-1 px-3 py-3 space-y-0.5 overflow-y-auto">
@@ -106,7 +119,7 @@ const SuperAdminLayout: React.FC = () => {
           <div className="h-8 w-8 rounded-lg bg-gradient-gold flex items-center justify-center">
             <Camera className="text-primary-foreground" size={16} />
           </div>
-          <span className="font-display text-lg font-bold text-sidebar-foreground">StudioSaaS</span>
+          <span className="font-display text-lg font-bold text-sidebar-foreground">Trivora StudioOS</span>
         </div>
         <button onClick={() => setMobileMenuOpen(!mobileMenuOpen)} className="p-2 text-sidebar-foreground">
           {mobileMenuOpen ? <X size={24} /> : <Menu size={24} />}

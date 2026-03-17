@@ -12,7 +12,7 @@ import { useToast } from '@/hooks/use-toast';
 import { StudioSettings } from '@/types/database';
 
 const SettingsManager: React.FC = () => {
-  const { currentStudio, refreshUserData } = useAuth();
+  const { studio, refreshUserData } = useAuth();
   const { toast } = useToast();
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -44,25 +44,25 @@ const SettingsManager: React.FC = () => {
   });
 
   useEffect(() => {
-    if (currentStudio?.id) {
+    if (studio?.id) {
       fetchSettings();
     }
-  }, [currentStudio?.id]);
+  }, [studio?.id]);
 
   const fetchSettings = async () => {
-    if (!currentStudio?.id) return;
+    if (!studio?.id) return;
     
     try {
       setStudioData({
-        name: currentStudio.name,
-        slug: currentStudio.slug,
-        is_public: currentStudio.is_public,
+        name: studio.name,
+        slug: studio.slug,
+        is_public: studio.is_public,
       });
 
       const { data, error } = await supabase
         .from('studio_settings')
         .select('*')
-        .eq('studio_id', currentStudio.id)
+        .eq('studio_id', studio.id)
         .maybeSingle();
 
       if (data) {
@@ -76,7 +76,7 @@ const SettingsManager: React.FC = () => {
   };
 
   const handleSave = async () => {
-    if (!currentStudio?.id) return;
+    if (!studio?.id) return;
 
     setSaving(true);
     try {
@@ -88,7 +88,7 @@ const SettingsManager: React.FC = () => {
           slug: studioData.slug,
           is_public: studioData.is_public,
         })
-        .eq('id', currentStudio.id);
+        .eq('id', studio.id);
 
       if (studioError) throw studioError;
 
@@ -96,11 +96,11 @@ const SettingsManager: React.FC = () => {
       const { data: existingSettings } = await supabase
         .from('studio_settings')
         .select('id')
-        .eq('studio_id', currentStudio.id)
+        .eq('studio_id', studio.id)
         .maybeSingle();
 
       const settingsPayload = {
-        studio_id: currentStudio.id,
+        studio_id: studio.id,
         ...settings,
       };
 

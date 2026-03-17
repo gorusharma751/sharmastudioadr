@@ -8,9 +8,10 @@ import { useToast } from '@/hooks/use-toast';
 import { useAuth } from '@/contexts/AuthContext';
 import { useNavigate } from 'react-router-dom';
 import { z } from 'zod';
+import { ROUTES } from '@/lib/routes';
 
 const authSchema = z.object({
-  email: z.string().trim().email('Please enter a valid email address'),
+  email: z.string().email('Please enter a valid email address'),
   password: z.string().min(6, 'Password must be at least 6 characters'),
 });
 
@@ -20,20 +21,15 @@ const StudioAuthPage: React.FC = () => {
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [formData, setFormData] = useState({ email: '', password: '' });
 
-  const { signIn, user, isStudioAdmin, isSuperAdmin, role, loading: authLoading } = useAuth();
+  const { signIn, user, isStudioAdmin, loading: authLoading } = useAuth();
   const { toast } = useToast();
   const navigate = useNavigate();
 
   useEffect(() => {
-    if (!authLoading && user && role) {
-      if (isStudioAdmin) {
-        navigate('/studio', { replace: true });
-      } else if (isSuperAdmin) {
-        // Super admin tried studio login - redirect to admin
-        navigate('/admin', { replace: true });
-      }
+    if (user && !authLoading && isStudioAdmin) {
+      navigate(ROUTES.DASHBOARD);
     }
-  }, [user, authLoading, isStudioAdmin, isSuperAdmin, role, navigate]);
+  }, [user, authLoading, isStudioAdmin, navigate]);
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const { name, value } = e.target;
@@ -48,8 +44,8 @@ const StudioAuthPage: React.FC = () => {
 
     try {
       const validatedData = authSchema.parse(formData);
-      const { error } = await signIn(validatedData.email, validatedData.password);
-      
+      const { error, redirectTo } = await signIn(validatedData.email, validatedData.password);
+
       if (error) {
         toast({
           title: 'Login Failed',
@@ -58,8 +54,14 @@ const StudioAuthPage: React.FC = () => {
             : error.message,
           variant: 'destructive',
         });
+      } else if (redirectTo === '/dashboard') {
+        toast({ title: 'Welcome Back!', description: 'Studio admin logged in.' });
+        navigate(ROUTES.DASHBOARD);
+      } else {
+        // Super admin tried to log in via studio page — redirect to admin
+        toast({ title: 'Redirecting...', description: 'Use the admin panel instead.' });
+        navigate(ROUTES.ADMIN);
       }
-      // Redirect happens via useEffect when role loads
     } catch (error) {
       if (error instanceof z.ZodError) {
         const newErrors: Record<string, string> = {};
@@ -73,8 +75,6 @@ const StudioAuthPage: React.FC = () => {
     }
   };
 
-  if (authLoading) return null;
-
   return (
     <div className="min-h-screen flex hero-gradient">
       {/* Left - Branding */}
@@ -87,7 +87,7 @@ const StudioAuthPage: React.FC = () => {
               <div className="h-12 w-12 rounded-xl bg-gradient-gold flex items-center justify-center">
                 <Camera className="text-primary-foreground" size={24} />
               </div>
-              <span className="font-display text-2xl font-bold text-foreground">StudioSaaS</span>
+              <span className="font-display text-2xl font-bold text-foreground">Trivora StudioOS</span>
             </div>
             <h1 className="font-display text-4xl lg:text-5xl font-bold leading-tight mb-6">
               Manage Your{' '}
@@ -151,6 +151,16 @@ const StudioAuthPage: React.FC = () => {
               <ArrowRight className="ml-2 group-hover:translate-x-1 transition-transform" size={18} />
             </Button>
           </form>
+
+          <div className="mt-4 text-center">
+            <button
+              type="button"
+              onClick={() => toast({ title: 'Coming Soon', description: 'Forgot password feature is coming soon.' })}
+              className="text-sm text-muted-foreground hover:text-primary transition-colors"
+            >
+              Forgot your password?
+            </button>
+          </div>
         </motion.div>
       </div>
     </div>

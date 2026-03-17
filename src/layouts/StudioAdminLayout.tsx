@@ -22,45 +22,64 @@ import { Button } from '@/components/ui/button';
 import { useAuth } from '@/contexts/AuthContext';
 import { cn } from '@/lib/utils';
 import { Skeleton } from '@/components/ui/skeleton';
+import { ROUTES } from '@/lib/routes';
 
 const StudioAdminLayout: React.FC = () => {
   const [mobileMenuOpen, setMobileMenuOpen] = React.useState(false);
-  const { signOut, user, loading, currentStudio, isStudioAdmin, isSuperAdmin, role } = useAuth();
+  const { signOut, user, loading, studio, isStudioAdmin, isSuperAdmin } = useAuth();
   const location = useLocation();
   const navigate = useNavigate();
 
   // Redirect if not authenticated or wrong role
   useEffect(() => {
     if (!loading && !user) {
-      navigate('/studio/login', { replace: true });
+      navigate(ROUTES.LOGIN_STUDIO);
     }
-    if (!loading && user && role !== null && !isStudioAdmin && !isSuperAdmin) {
-      navigate('/studio/login', { replace: true });
+    // Super admin must NEVER access studio dashboard
+    if (!loading && user && isSuperAdmin) {
+      navigate(ROUTES.ADMIN);
     }
-  }, [user, loading, role, isStudioAdmin, isSuperAdmin, navigate]);
+    // Non-studio-admin users (e.g. no role assigned yet) get sent to login
+    if (!loading && user && !isStudioAdmin && !isSuperAdmin) {
+      navigate(ROUTES.LOGIN_STUDIO);
+    }
+  }, [user, loading, isSuperAdmin, isStudioAdmin, navigate]);
 
   // Close mobile menu on route change
   useEffect(() => {
     setMobileMenuOpen(false);
   }, [location.pathname]);
 
+  // Add noindex meta for dashboard pages
+  useEffect(() => {
+    const meta = document.createElement('meta');
+    meta.name = 'robots';
+    meta.content = 'noindex, nofollow';
+    document.head.appendChild(meta);
+    return () => {
+      if (meta.parentNode) {
+        meta.parentNode.removeChild(meta);
+      }
+    };
+  }, []);
+
   const navItems = [
-    { label: 'Dashboard', href: '/studio', icon: LayoutDashboard },
-    { label: 'Studio Settings', href: '/studio/settings', icon: Settings },
-    { label: 'Pages', href: '/studio/pages', icon: FileText },
-    { label: 'Services', href: '/studio/services', icon: Briefcase },
-    { label: 'Portfolio', href: '/studio/portfolio', icon: Camera },
-    { label: 'Bookings', href: '/studio/bookings', icon: Calendar },
-    { label: 'Event Albums', href: '/studio/albums', icon: Image },
-    { label: 'Album Settings', href: '/studio/album-settings', icon: Sliders },
-    { label: 'Leads', href: '/studio/leads', icon: Users },
-    { label: 'Find Your Photos', href: '/studio/find-photos', icon: QrCode },
-    { label: 'Invitations', href: '/studio/invitations', icon: Heart },
+    { label: 'Dashboard', href: ROUTES.DASHBOARD, icon: LayoutDashboard },
+    { label: 'Studio Settings', href: ROUTES.DASHBOARD_SETTINGS, icon: Settings },
+    { label: 'Pages', href: ROUTES.DASHBOARD_PAGES, icon: FileText },
+    { label: 'Services', href: ROUTES.DASHBOARD_SERVICES, icon: Briefcase },
+    { label: 'Portfolio', href: ROUTES.DASHBOARD_PORTFOLIO, icon: Camera },
+    { label: 'Bookings', href: ROUTES.DASHBOARD_BOOKINGS, icon: Calendar },
+    { label: 'Event Albums', href: ROUTES.DASHBOARD_ALBUMS, icon: Image },
+    { label: 'Album Settings', href: ROUTES.DASHBOARD_ALBUM_SETTINGS, icon: Sliders },
+    { label: 'Leads', href: ROUTES.DASHBOARD_LEADS, icon: Users },
+    { label: 'Find Your Photos', href: ROUTES.DASHBOARD_FIND_PHOTOS, icon: QrCode },
+    { label: 'Invitations', href: ROUTES.DASHBOARD_INVITATIONS, icon: Heart },
   ];
 
   const handleSignOut = async () => {
     await signOut();
-    navigate('/studio/login');
+    navigate(ROUTES.LOGIN_STUDIO);
   };
 
   if (loading) {
@@ -77,11 +96,13 @@ const StudioAdminLayout: React.FC = () => {
 
   if (!user) return null;
 
+  const studioPublicUrl = studio?.slug ? `/@${studio.slug}` : '/';
+
   return (
     <div className="min-h-screen bg-background flex">
       {/* Sidebar - Desktop (fixed width, no collapse) */}
       <aside className="hidden lg:flex flex-col w-[280px] bg-sidebar border-r border-sidebar-border fixed left-0 top-0 bottom-0 z-40">
-        {/* Studio Branding - No Dropdown */}
+        {/* Studio Branding */}
         <div className="p-4 border-b border-sidebar-border">
           <div className="flex items-center gap-3 p-3 rounded-lg bg-sidebar-accent/50">
             <div className="h-10 w-10 rounded-lg bg-gradient-gold flex items-center justify-center flex-shrink-0">
@@ -89,10 +110,10 @@ const StudioAdminLayout: React.FC = () => {
             </div>
             <div className="flex-1 min-w-0">
               <p className="font-display font-semibold text-sidebar-foreground truncate">
-                {currentStudio?.name || 'My Studio'}
+                {studio?.name || 'My Studio'}
               </p>
               <p className="text-xs text-muted-foreground truncate">
-                /{currentStudio?.slug || 'studio'}
+                /{studio?.slug || 'studio'}
               </p>
             </div>
           </div>
@@ -103,7 +124,6 @@ const StudioAdminLayout: React.FC = () => {
           {navItems.map((item) => {
             const isActive = location.pathname === item.href;
             const Icon = item.icon;
-
             return (
               <Link
                 key={item.href}
@@ -127,7 +147,7 @@ const StudioAdminLayout: React.FC = () => {
         {/* View Website */}
         <div className="px-3 pb-3">
           <Link
-            to="/"
+            to={studioPublicUrl}
             target="_blank"
             className="flex items-center gap-3 px-3 py-2.5 rounded-lg bg-primary/10 text-primary hover:bg-primary/20 transition-colors"
           >
@@ -169,7 +189,7 @@ const StudioAdminLayout: React.FC = () => {
             <Camera className="text-primary-foreground" size={16} />
           </div>
           <span className="font-display text-lg font-bold text-sidebar-foreground truncate max-w-[180px]">
-            {currentStudio?.name || 'Studio'}
+            {studio?.name || 'Studio'}
           </span>
         </div>
         <button onClick={() => setMobileMenuOpen(!mobileMenuOpen)} className="p-2 text-sidebar-foreground">

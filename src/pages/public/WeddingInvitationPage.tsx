@@ -25,7 +25,7 @@ const invitationSchema = z.object({
 type InvitationFormData = z.infer<typeof invitationSchema>;
 
 const WeddingInvitationPage: React.FC = () => {
-  const { studio } = useStudio();
+  const { studio, settings } = useStudio();
   const { toast } = useToast();
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isSuccess, setIsSuccess] = useState(false);
@@ -77,7 +77,7 @@ const WeddingInvitationPage: React.FC = () => {
 
   return (
     <div className="min-h-screen bg-background">
-      <GlassNavbar studioName={studio?.name || 'Studio'} />
+      <GlassNavbar studioName={studio?.name || 'Studio'} studioSlug={studio?.slug} studioId={studio?.id} />
       
       <motion.div
         initial={{ opacity: 0 }}
@@ -361,7 +361,7 @@ const WeddingInvitationPage: React.FC = () => {
         </SectionContainer>
       </motion.div>
       
-      <Footer studioName={studio?.name || 'Studio'} />
+      <Footer studioName={studio?.name || 'Studio'} studioSlug={studio?.slug} />
     </div>
   );
 };

@@ -13,7 +13,7 @@ import { useToast } from '@/hooks/use-toast';
 import { Service } from '@/types/database';
 
 const ServicesManager: React.FC = () => {
-  const { currentStudio } = useAuth();
+  const { studio } = useAuth();
   const { toast } = useToast();
   const [services, setServices] = useState<Service[]>([]);
   const [loading, setLoading] = useState(true);
@@ -28,19 +28,19 @@ const ServicesManager: React.FC = () => {
   });
 
   useEffect(() => {
-    if (currentStudio?.id) {
+    if (studio?.id) {
       fetchServices();
     }
-  }, [currentStudio?.id]);
+  }, [studio?.id]);
 
   const fetchServices = async () => {
-    if (!currentStudio?.id) return;
+    if (!studio?.id) return;
     
     try {
       const { data, error } = await supabase
         .from('services')
         .select('*')
-        .eq('studio_id', currentStudio.id)
+        .eq('studio_id', studio.id)
         .order('sort_order');
 
       if (error) throw error;
@@ -78,7 +78,7 @@ const ServicesManager: React.FC = () => {
   };
 
   const handleSave = async () => {
-    if (!currentStudio?.id || !formData.title) {
+    if (!studio?.id || !formData.title) {
       toast({ title: 'Error', description: 'Title is required', variant: 'destructive' });
       return;
     }
@@ -86,7 +86,7 @@ const ServicesManager: React.FC = () => {
     try {
       const images = formData.images.filter(img => img.trim() !== '');
       const payload = {
-        studio_id: currentStudio.id,
+        studio_id: studio.id,
         title: formData.title,
         description: formData.description || null,
         price: formData.price ? parseFloat(formData.price) : null,

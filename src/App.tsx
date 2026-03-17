@@ -4,17 +4,22 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BrowserRouter, Routes, Route } from "react-router-dom";
 import { AuthProvider } from "@/contexts/AuthContext";
-import { StudioProvider } from "@/contexts/StudioContext";
 
 // Pages
-import Index from "./pages/Index";
 import NotFound from "./pages/NotFound";
 
+// Marketing Pages
+import MarketingLanding from "./pages/marketing/MarketingLanding";
+import FeaturesPage from "./pages/marketing/FeaturesPage";
+import PricingPage from "./pages/marketing/PricingPage";
+
 // Auth Pages
+import LoginSelectorPage from "./pages/LoginSelectorPage";
 import AdminAuthPage from "./pages/AdminAuthPage";
 import StudioAuthPage from "./pages/StudioAuthPage";
 
-// Public Pages
+// Public Studio Pages
+import Index from "./pages/Index";
 import ServicesPage from "./pages/public/ServicesPage";
 import PortfolioPage from "./pages/public/PortfolioPage";
 import AlbumDetailPage from "./pages/public/AlbumDetailPage";
@@ -27,12 +32,16 @@ import WeddingInvitationPage from "./pages/public/WeddingInvitationPage";
 import CustomPage from "./pages/public/CustomPage";
 import DigitalAlbumPage from "./pages/public/DigitalAlbumPage";
 
+// Guest Photo Finder
+import FindPhotosEventPage from "./pages/public/FindPhotosEventPage";
+import GuestFindPhotosPage from "./pages/public/GuestFindPhotosPage";
+
 // Layouts
 import StudioAdminLayout from "./layouts/StudioAdminLayout";
 import SuperAdminLayout from "./layouts/SuperAdminLayout";
-import UserLayout from "./layouts/UserLayout";
+import PublicStudioLayout from "./layouts/PublicStudioLayout";
 
-// Studio Admin Pages (used inside /studio routes)
+// Studio Admin Pages (dashboard)
 import StudioDashboard from "./pages/admin/Dashboard";
 import ServicesManager from "./pages/admin/ServicesManager";
 import PortfolioManager from "./pages/admin/PortfolioManager";
@@ -48,24 +57,8 @@ import AlbumSettingsManager from "./pages/admin/AlbumSettingsManager";
 // Super Admin Pages
 import SuperAdminDashboard from "./pages/super-admin/Dashboard";
 import StudiosManager from "./pages/super-admin/StudiosManager";
-import PlansManager from "./pages/super-admin/PlansManager";
-import UsersManager from "./pages/super-admin/UsersManager";
-import AnalyticsPage from "./pages/super-admin/AnalyticsPage";
-import PlatformSettings from "./pages/super-admin/PlatformSettings";
-
-// User Pages
-import UserDashboard from "./pages/user/UserDashboard";
-import UserAlbums from "./pages/user/UserAlbums";
-import UserShare from "./pages/user/UserShare";
 
 const queryClient = new QueryClient();
-
-// Wrapper for public pages with StudioProvider
-const PublicPageWrapper: React.FC<{ children: React.ReactNode }> = ({ children }) => (
-  <StudioProvider studioSlug="sharmastudioadr">
-    {children}
-  </StudioProvider>
-);
 
 const App = () => (
   <QueryClientProvider client={queryClient}>
@@ -76,26 +69,18 @@ const App = () => (
         <BrowserRouter>
           <Routes>
             {/* ==================== */}
-            {/* PUBLIC ROUTES        */}
+            {/* MARKETING ROUTES     */}
             {/* ==================== */}
-            <Route path="/" element={<PublicPageWrapper><Index /></PublicPageWrapper>} />
-            <Route path="/services" element={<PublicPageWrapper><ServicesPage /></PublicPageWrapper>} />
-            <Route path="/portfolio" element={<PublicPageWrapper><PortfolioPage /></PublicPageWrapper>} />
-            <Route path="/portfolio/:id" element={<PublicPageWrapper><AlbumDetailPage /></PublicPageWrapper>} />
-            <Route path="/booking" element={<PublicPageWrapper><BookingPage /></PublicPageWrapper>} />
-            <Route path="/about" element={<PublicPageWrapper><AboutPage /></PublicPageWrapper>} />
-            <Route path="/contact" element={<PublicPageWrapper><ContactPage /></PublicPageWrapper>} />
-            <Route path="/album/:id" element={<PublicPageWrapper><ProgramAlbumPage /></PublicPageWrapper>} />
-            <Route path="/find-photos" element={<PublicPageWrapper><FindPhotosPage /></PublicPageWrapper>} />
-            <Route path="/invitation" element={<PublicPageWrapper><WeddingInvitationPage /></PublicPageWrapper>} />
-            <Route path="/page/:slug" element={<PublicPageWrapper><CustomPage /></PublicPageWrapper>} />
-            <Route path="/digital-album/:id" element={<DigitalAlbumPage />} />
+            <Route path="/" element={<MarketingLanding />} />
+            <Route path="/features" element={<FeaturesPage />} />
+            <Route path="/pricing" element={<PricingPage />} />
 
             {/* ==================== */}
             {/* AUTH ROUTES          */}
             {/* ==================== */}
-            <Route path="/admin/login" element={<AdminAuthPage />} />
-            <Route path="/studio/login" element={<StudioAuthPage />} />
+            <Route path="/login" element={<LoginSelectorPage />} />
+            <Route path="/login/studio" element={<StudioAuthPage />} />
+            <Route path="/login/admin" element={<AdminAuthPage />} />
 
             {/* ==================== */}
             {/* SUPER ADMIN ROUTES   */}
@@ -103,16 +88,12 @@ const App = () => (
             <Route path="/admin" element={<SuperAdminLayout />}>
               <Route index element={<SuperAdminDashboard />} />
               <Route path="studios" element={<StudiosManager />} />
-              <Route path="plans" element={<PlansManager />} />
-              <Route path="users" element={<UsersManager />} />
-              <Route path="analytics" element={<AnalyticsPage />} />
-              <Route path="settings" element={<PlatformSettings />} />
             </Route>
 
             {/* ==================== */}
-            {/* STUDIO ADMIN ROUTES  */}
+            {/* STUDIO DASHBOARD     */}
             {/* ==================== */}
-            <Route path="/studio" element={<StudioAdminLayout />}>
+            <Route path="/dashboard" element={<StudioAdminLayout />}>
               <Route index element={<StudioDashboard />} />
               <Route path="settings" element={<SettingsManager />} />
               <Route path="pages" element={<PagesManager />} />
@@ -120,21 +101,34 @@ const App = () => (
               <Route path="portfolio" element={<PortfolioManager />} />
               <Route path="bookings" element={<BookingsManager />} />
               <Route path="albums" element={<ProgramsManager />} />
-              <Route path="leads" element={<LeadsManager />} />
               <Route path="album-settings" element={<AlbumSettingsManager />} />
+              <Route path="leads" element={<LeadsManager />} />
               <Route path="find-photos" element={<FindPhotosManager />} />
               <Route path="invitations" element={<InvitationsManager />} />
             </Route>
 
             {/* ==================== */}
-            {/* USER PORTAL ROUTES   */}
+            {/* GUEST PHOTO FINDER   */}
             {/* ==================== */}
-            <Route path="/user" element={<UserLayout />}>
-              <Route index element={<UserDashboard />} />
-              <Route path="albums" element={<UserAlbums />} />
-              <Route path="share" element={<UserShare />} />
-              <Route path="invitations" element={<UserDashboard />} />
-              <Route path="bookings" element={<UserDashboard />} />
+            <Route path="/find-photos" element={<GuestFindPhotosPage />} />
+            <Route path="/find-photos/:eventId" element={<FindPhotosEventPage />} />
+
+            {/* ==================== */}
+            {/* PUBLIC STUDIO ROUTES */}
+            {/* ==================== */}
+            <Route path="/:studioHandle" element={<PublicStudioLayout />}>
+              <Route index element={<Index />} />
+              <Route path="services" element={<ServicesPage />} />
+              <Route path="portfolio" element={<PortfolioPage />} />
+              <Route path="portfolio/:id" element={<AlbumDetailPage />} />
+              <Route path="booking" element={<BookingPage />} />
+              <Route path="about" element={<AboutPage />} />
+              <Route path="contact" element={<ContactPage />} />
+              <Route path="album/:id" element={<ProgramAlbumPage />} />
+              <Route path="find-photos" element={<FindPhotosPage />} />
+              <Route path="invitation" element={<WeddingInvitationPage />} />
+              <Route path="page/:slug" element={<CustomPage />} />
+              <Route path="digital-album/:id" element={<DigitalAlbumPage />} />
             </Route>
 
             {/* Catch-all */}

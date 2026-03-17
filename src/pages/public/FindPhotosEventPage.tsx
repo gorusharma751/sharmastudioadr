@@ -1,22 +1,24 @@
 import React, { useState, useEffect, useRef } from 'react';
+import { useParams, Link } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Camera, User, Phone, Upload, Search, CheckCircle, Sparkles, ImageIcon, Download, Calendar, MapPin, ChevronDown, Wifi } from 'lucide-react';
-import GlassNavbar from '@/components/GlassNavbar';
-import Footer from '@/components/Footer';
+import { Camera, User, Phone, Upload, Search, CheckCircle, Sparkles, ImageIcon, Download, Wifi } from 'lucide-react';
 import { SectionContainer, SectionHeader, GlowButton } from '@/components/ui/shared';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { useStudio } from '@/contexts/StudioContext';
 import { supabase } from '@/integrations/supabase/client';
 import { useToast } from '@/hooks/use-toast';
 import { Progress } from '@/components/ui/progress';
 
-interface EventItem {
+interface EventData {
   id: string;
   name: string;
   venue: string | null;
   event_date: string | null;
   api_event_id: string;
+  studios: {
+    name: string;
+    slug: string;
+  } | null;
 }
 
 interface MatchedPhoto {
@@ -26,17 +28,10 @@ interface MatchedPhoto {
   similarity?: number;
 }
 
-// ─── Two possible processing sub-states displayed in the processing screen ───
 type ProcessingStage = 'waking' | 'matching';
 
-// Call the Python API directly — it has CORS enabled, no edge proxy needed
 const PYTHON_API = import.meta.env.VITE_PYTHON_API_URL || 'https://sharmastudioadr-api-production.up.railway.app';
 
-/**
- * Ping the Python API health endpoint directly from the browser using no-cors mode.
- * In no-cors mode: if fetch RESOLVES → server is responding (awake).
- *                  if fetch THROWS  → server is still sleeping / not ready.
- */
 async function pingPythonHealth(): Promise<boolean> {
   try {
     const res = await fetch(`${PYTHON_API}/health`, {
@@ -59,12 +54,15 @@ async function pingPythonHealth(): Promise<boolean> {
   }
 }
 
-const FindPhotosPage: React.FC = () => {
-  const { studio, settings } = useStudio();
+const FindPhotosEventPage: React.FC = () => {
+  const { eventId } = useParams<{ eventId: string }>();
   const { toast } = useToast();
-  const [events, setEvents] = useState<EventItem[]>([]);
-  const [selectedEvent, setSelectedEvent] = useState<EventItem | null>(null);
-  const [step, setStep] = useState<'event' | 'form' | 'processing' | 'results'>('event');
+
+  const [event, setEvent] = useState<EventData | null>(null);
+  const [eventLoading, setEventLoading] = useState(true);
+  const [eventNotFound, setEventNotFound] = useState(false);
+
+  const [step, setStep] = useState<'form' | 'processing' | 'results'>('form');
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   const [name, setName] = useState('');
@@ -75,32 +73,43 @@ const FindPhotosPage: React.FC = () => {
   const [matchedPhotos, setMatchedPhotos] = useState<MatchedPhoto[]>([]);
   const [selectedPhoto, setSelectedPhoto] = useState<string | null>(null);
 
-  // Processing UI state
   const [procStage, setProcStage] = useState<ProcessingStage>('waking');
-  const [wakeElapsed, setWakeElapsed] = useState(0); // seconds since waking started
+  const [wakeElapsed, setWakeElapsed] = useState(0);
   const MAX_WAKE_SECS = 180;
   const wakeTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const abortRef = useRef(false);
 
+  // Fetch event data on mount
   useEffect(() => {
-    if (studio?.id) fetchEvents();
-  }, [studio?.id]);
+    if (!eventId) {
+      setEventNotFound(true);
+      setEventLoading(false);
+      return;
+    }
+
+    const fetchEvent = async () => {
+      const { data, error } = await supabase
+        .from('events')
+        .select('id, name, venue, event_date, api_event_id, studios(name, slug)')
+        .eq('id', eventId)
+        .eq('is_active', true)
+        .maybeSingle();
+
+      if (error || !data) {
+        setEventNotFound(true);
+      } else {
+        setEvent(data as unknown as EventData);
+      }
+      setEventLoading(false);
+    };
+
+    fetchEvent();
+  }, [eventId]);
 
   useEffect(() => () => {
     abortRef.current = true;
     if (wakeTimerRef.current) clearInterval(wakeTimerRef.current);
   }, []);
-
-  const fetchEvents = async () => {
-    if (!studio?.id) return;
-    const { data } = await supabase
-      .from('events')
-      .select('id, name, venue, event_date, api_event_id')
-      .eq('studio_id', studio.id)
-      .eq('is_active', true)
-      .order('event_date', { ascending: false });
-    setEvents((data as EventItem[]) || []);
-  };
 
   const handleSelfieChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -110,7 +119,6 @@ const FindPhotosPage: React.FC = () => {
     }
   };
 
-  /** Poll health every 5 s until healthy or timeout. Returns true if healthy. */
   const waitForServer = (): Promise<boolean> =>
     new Promise((resolve) => {
       let elapsed = 0;
@@ -125,13 +133,12 @@ const FindPhotosPage: React.FC = () => {
           resolve(healthy);
         }
       }, 5000);
-      // Also fire one immediate check
       pingPythonHealth().then((h) => { if (h) { clearInterval(wakeTimerRef.current!); resolve(true); } });
     });
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!selectedEvent || !selfieFile || !name.trim() || !phone.trim()) {
+    if (!event || !selfieFile || !name.trim() || !phone.trim()) {
       toast({ title: 'Error', description: 'Please fill all fields and upload a selfie', variant: 'destructive' });
       return;
     }
@@ -143,7 +150,6 @@ const FindPhotosPage: React.FC = () => {
     setWakeElapsed(0);
 
     try {
-      // ── Phase 1: Wait for Python server to be healthy ─────────────────────
       const healthy = await waitForServer();
       if (abortRef.current) return;
       if (!healthy) {
@@ -153,19 +159,15 @@ const FindPhotosPage: React.FC = () => {
         return;
       }
 
-      // ── Phase 2: Build FormData and call Python API directly ────────────
       setProcStage('matching');
 
       const formData = new FormData();
       formData.append('name', name.trim());
       formData.append('mobile', phone.trim());
-      formData.append('event_id', selectedEvent.api_event_id);
+      formData.append('event_id', event.api_event_id);
       formData.append('threshold', '0.35');
       formData.append('file', selfieFile!, selfieFile!.name);
 
-      console.log('Calling Python API directly, event_id:', selectedEvent.api_event_id);
-
-      // ── Phase 3: POST to Python API ───────────────────────────────────────
       const response = await fetch(`${PYTHON_API}/match`, {
         method: 'POST',
         body: formData,
@@ -173,19 +175,14 @@ const FindPhotosPage: React.FC = () => {
       });
 
       const text = await response.text();
-      console.log(`Python API HTTP ${response.status}:`, text.substring(0, 800));
-
       let result: any;
       try { result = JSON.parse(text); } catch { result = { error: text || 'Invalid JSON' }; }
 
       if (!response.ok || result?.error) {
-        // Translate misleading Python API messages into user-friendly ones
         const rawErr: string = result?.error || `Server error (${response.status})`;
         let friendlyErr = rawErr;
         if (rawErr.toLowerCase().includes('waking') || rawErr.toLowerCase().includes('wake')) {
           friendlyErr = 'The AI server is still starting up. Please wait a moment and try again.';
-        } else if (rawErr.toLowerCase().includes('auth') || rawErr.toLowerCase().includes('mongodb')) {
-          friendlyErr = 'The AI service has a configuration issue. Please contact the studio admin.';
         } else if (rawErr.toLowerCase().includes('no face') || rawErr.toLowerCase().includes('face not')) {
           friendlyErr = 'No face detected in your selfie. Please use a clear, front-facing photo and try again.';
         } else if (rawErr.toLowerCase().includes('event') && rawErr.toLowerCase().includes('not')) {
@@ -197,10 +194,6 @@ const FindPhotosPage: React.FC = () => {
         return;
       }
 
-      // ── Phase 4: Show results ─────────────────────────────────────────────
-      console.log('Raw result keys:', Object.keys(result));
-      console.log('Raw result:', JSON.stringify(result).substring(0, 600));
-
       const rawPhotos: any[] = result?.matched_photos ?? result?.photos ?? result?.results ?? result?.data ?? [];
       const photos: MatchedPhoto[] = rawPhotos.map((p: any) =>
         typeof p === 'string' ? { url: p } : p
@@ -210,7 +203,7 @@ const FindPhotosPage: React.FC = () => {
       setStep('results');
 
       toast({
-        title: photos.length > 0 ? '🎉 Photos Found!' : 'No Matches',
+        title: photos.length > 0 ? 'Photos Found!' : 'No Matches',
         description: photos.length > 0
           ? `Found ${photos.length} photo${photos.length > 1 ? 's' : ''} of you!`
           : 'No matching photos found. Try a clearer front-facing selfie.',
@@ -230,8 +223,7 @@ const FindPhotosPage: React.FC = () => {
     abortRef.current = true;
     if (wakeTimerRef.current) clearInterval(wakeTimerRef.current);
     abortRef.current = false;
-    setStep('event');
-    setSelectedEvent(null);
+    setStep('form');
     setMatchedPhotos([]);
     setSelfiePreview(null);
     setSelfieFile(null);
@@ -240,68 +232,66 @@ const FindPhotosPage: React.FC = () => {
     setPhone('');
   };
 
+  const studioName = event?.studios?.name || 'Studio';
+
+  // Loading state
+  if (eventLoading) {
+    return (
+      <div className="min-h-screen bg-background flex items-center justify-center">
+        <div className="text-center space-y-4">
+          <motion.div animate={{ rotate: 360 }} transition={{ repeat: Infinity, duration: 2, ease: 'linear' }} className="w-12 h-12 mx-auto rounded-full border-4 border-primary border-t-transparent" />
+          <p className="text-muted-foreground">Loading event...</p>
+        </div>
+      </div>
+    );
+  }
+
+  // Event not found
+  if (eventNotFound || !event) {
+    return (
+      <div className="min-h-screen bg-background flex items-center justify-center p-8">
+        <div className="text-center max-w-md">
+          <div className="w-20 h-20 mx-auto mb-6 rounded-full bg-muted flex items-center justify-center">
+            <Search className="text-muted-foreground" size={40} />
+          </div>
+          <h1 className="font-display text-2xl font-bold mb-2">Event Not Found</h1>
+          <p className="text-muted-foreground mb-6">This event link may be expired or invalid. Please check the QR code or link provided by the studio.</p>
+          <Link to="/" className="text-primary underline hover:text-primary/80">Go to homepage</Link>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="min-h-screen bg-background">
-      <GlassNavbar studioName={studio?.name || 'Studio'} studioSlug={studio?.slug} studioId={studio?.id} />
+      {/* Minimal Header */}
+      <div className="fixed top-0 left-0 right-0 z-50 glass-strong py-3">
+        <div className="section-container flex items-center gap-3">
+          <div className="h-10 w-10 rounded-lg bg-gradient-gold flex items-center justify-center">
+            <Camera className="text-primary-foreground" size={20} />
+          </div>
+          <div>
+            <p className="font-display text-lg font-semibold text-foreground">{studioName}</p>
+            <p className="text-xs text-muted-foreground">{event.name}</p>
+          </div>
+        </div>
+      </div>
 
       <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.6 }} className="pt-32 pb-20">
         <SectionContainer>
           <SectionHeader
             title="Find Your Photos"
-            subtitle="Select your event, upload a selfie, and get your photos instantly using AI face recognition."
+            subtitle={`Upload a selfie to find your photos from ${event.name}.`}
           />
 
           <AnimatePresence mode="wait">
-            {/* Step 1: Select Event */}
-            {step === 'event' && (
-              <motion.div key="event" initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }} className="max-w-2xl mx-auto">
-                <div className="glass-card p-8 md:p-12">
-                  <h3 className="font-semibold text-lg mb-6 flex items-center gap-2">
-                    <Calendar className="text-primary" size={20} /> Select Your Event
-                  </h3>
-                  {events.length === 0 ? (
-                    <div className="text-center py-8 text-muted-foreground">
-                      <Search size={40} className="mx-auto mb-4 opacity-50" />
-                      <p>No events available at the moment.</p>
-                    </div>
-                  ) : (
-                    <div className="space-y-3">
-                      {events.map((event) => (
-                        <motion.button
-                          key={event.id}
-                          whileHover={{ scale: 1.02 }}
-                          whileTap={{ scale: 0.98 }}
-                          onClick={() => { setSelectedEvent(event); setStep('form'); }}
-                          className="w-full text-left p-4 rounded-xl border border-border hover:border-primary/50 hover:bg-primary/5 transition-all"
-                        >
-                          <div className="flex items-center justify-between">
-                            <div>
-                              <h4 className="font-semibold text-foreground">{event.name}</h4>
-                              <div className="flex gap-3 mt-1 text-sm text-muted-foreground">
-                                {event.venue && <span className="flex items-center gap-1"><MapPin size={12} />{event.venue}</span>}
-                                {event.event_date && <span className="flex items-center gap-1"><Calendar size={12} />{new Date(event.event_date).toLocaleDateString()}</span>}
-                              </div>
-                            </div>
-                            <ChevronDown size={20} className="text-muted-foreground -rotate-90" />
-                          </div>
-                        </motion.button>
-                      ))}
-                    </div>
-                  )}
-                </div>
-              </motion.div>
-            )}
-
-            {/* Step 2: Form */}
+            {/* Form */}
             {step === 'form' && (
               <motion.div key="form" initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }} className="max-w-2xl mx-auto">
                 <div className="glass-card p-8 md:p-12">
-                  <div className="mb-6 p-3 rounded-lg bg-primary/10 flex items-center justify-between">
-                    <div>
-                      <p className="text-sm text-muted-foreground">Selected Event</p>
-                      <p className="font-semibold">{selectedEvent?.name} {selectedEvent?.venue && `• ${selectedEvent.venue}`}</p>
-                    </div>
-                    <button onClick={handleReset} className="text-sm text-primary underline">Change</button>
+                  <div className="mb-6 p-3 rounded-lg bg-primary/10">
+                    <p className="text-sm text-muted-foreground">Event</p>
+                    <p className="font-semibold">{event.name} {event.venue && `\u2022 ${event.venue}`}</p>
                   </div>
 
                   <div className="mb-8">
@@ -340,7 +330,7 @@ const FindPhotosPage: React.FC = () => {
                         {selfiePreview ? (
                           <motion.div initial={{ opacity: 0, scale: 0.9 }} animate={{ opacity: 1, scale: 1 }} className="relative inline-block">
                             <img src={selfiePreview} alt="Selfie preview" className="w-40 h-40 object-cover rounded-xl mx-auto" />
-                            <button type="button" onClick={() => { setSelfiePreview(null); setSelfieFile(null); }} className="absolute -top-2 -right-2 w-6 h-6 bg-destructive text-destructive-foreground rounded-full text-xs">×</button>
+                            <button type="button" onClick={() => { setSelfiePreview(null); setSelfieFile(null); }} className="absolute -top-2 -right-2 w-6 h-6 bg-destructive text-destructive-foreground rounded-full text-xs">&times;</button>
                           </motion.div>
                         ) : (
                           <label className="cursor-pointer block">
@@ -375,7 +365,7 @@ const FindPhotosPage: React.FC = () => {
                     </motion.div>
                     <h2 className="font-display text-2xl font-bold mb-2">Starting AI Server...</h2>
                     <p className="text-muted-foreground mb-6">
-                      The face recognition server is waking up on Render.com.<br />
+                      The face recognition server is waking up.<br />
                       <span className="text-sm">This takes up to 2 minutes on first use.</span>
                     </p>
                     <div className="max-w-xs mx-auto mb-3">
@@ -405,8 +395,8 @@ const FindPhotosPage: React.FC = () => {
                       <motion.div initial={{ scale: 0 }} animate={{ scale: 1 }} transition={{ type: 'spring', bounce: 0.5 }} className="w-20 h-20 mx-auto mb-6 rounded-full bg-green-500/20 flex items-center justify-center">
                         <CheckCircle className="text-green-500" size={40} />
                       </motion.div>
-                      <h2 className="font-display text-3xl font-bold mb-2">🎉 We Found {matchedPhotos.length} Photos!</h2>
-                      <p className="text-muted-foreground">Here are your matched photos from {selectedEvent?.name}</p>
+                      <h2 className="font-display text-3xl font-bold mb-2">We Found {matchedPhotos.length} Photos!</h2>
+                      <p className="text-muted-foreground">Here are your matched photos from {event.name}</p>
                     </div>
 
                     <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4 mb-8">
@@ -470,15 +460,23 @@ const FindPhotosPage: React.FC = () => {
             <motion.img initial={{ scale: 0.8 }} animate={{ scale: 1 }} exit={{ scale: 0.8 }} src={selectedPhoto} alt="Full size" className="max-w-full max-h-[90vh] object-contain rounded-lg" onClick={(e) => e.stopPropagation()} />
             <div className="absolute top-4 right-4 flex gap-2">
               <a href={selectedPhoto} download className="text-white bg-black/50 w-10 h-10 rounded-full flex items-center justify-center"><Download size={18} /></a>
-              <button onClick={() => setSelectedPhoto(null)} className="text-white bg-black/50 w-10 h-10 rounded-full flex items-center justify-center text-2xl">×</button>
+              <button onClick={() => setSelectedPhoto(null)} className="text-white bg-black/50 w-10 h-10 rounded-full flex items-center justify-center text-2xl">&times;</button>
             </div>
           </motion.div>
         )}
       </AnimatePresence>
 
-      <Footer studioName={studio?.name || 'Studio'} studioSlug={studio?.slug} />
+      {/* Minimal Footer */}
+      <footer className="py-6 border-t border-border text-center">
+        <p className="text-sm text-muted-foreground">
+          Powered by <span className="font-semibold text-foreground">Trivora StudioOS</span>
+          {event.studios?.slug && (
+            <> &bull; <Link to={`/@${event.studios.slug}`} className="text-primary hover:underline">{studioName}</Link></>
+          )}
+        </p>
+      </footer>
     </div>
   );
 };
 
-export default FindPhotosPage;
+export default FindPhotosEventPage;

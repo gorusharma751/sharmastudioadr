@@ -8,9 +8,10 @@ import { useToast } from '@/hooks/use-toast';
 import { useAuth } from '@/contexts/AuthContext';
 import { useNavigate } from 'react-router-dom';
 import { z } from 'zod';
+import { ROUTES } from '@/lib/routes';
 
 const authSchema = z.object({
-  email: z.string().trim().email('Please enter a valid email address'),
+  email: z.string().email('Please enter a valid email address'),
   password: z.string().min(6, 'Password must be at least 6 characters'),
 });
 
@@ -25,8 +26,8 @@ const AdminAuthPage: React.FC = () => {
   const navigate = useNavigate();
 
   useEffect(() => {
-    if (!authLoading && user && isSuperAdmin) {
-      navigate('/admin', { replace: true });
+    if (user && !authLoading && isSuperAdmin) {
+      navigate(ROUTES.ADMIN);
     }
   }, [user, authLoading, isSuperAdmin, navigate]);
 
@@ -43,8 +44,8 @@ const AdminAuthPage: React.FC = () => {
 
     try {
       const validatedData = authSchema.parse(formData);
-      const { error } = await signIn(validatedData.email, validatedData.password);
-      
+      const { error, redirectTo } = await signIn(validatedData.email, validatedData.password);
+
       if (error) {
         toast({
           title: 'Login Failed',
@@ -53,8 +54,13 @@ const AdminAuthPage: React.FC = () => {
             : error.message,
           variant: 'destructive',
         });
+      } else if (redirectTo === '/admin') {
+        toast({ title: 'Welcome Back!', description: 'Super Admin logged in.' });
+        navigate(ROUTES.ADMIN);
+      } else {
+        // Not a super admin — they shouldn't use this login page
+        toast({ title: 'Access Denied', description: 'This login is for Super Admins only.', variant: 'destructive' });
       }
-      // Redirect happens via useEffect when role loads
     } catch (error) {
       if (error instanceof z.ZodError) {
         const newErrors: Record<string, string> = {};
@@ -67,8 +73,6 @@ const AdminAuthPage: React.FC = () => {
       setLoading(false);
     }
   };
-
-  if (authLoading) return null;
 
   return (
     <div className="min-h-screen flex items-center justify-center hero-gradient p-8">

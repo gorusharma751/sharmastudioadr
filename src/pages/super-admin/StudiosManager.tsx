@@ -47,19 +47,52 @@ const StudiosManager: React.FC = () => {
 
     setCreating(true);
     try {
-      const { data, error } = await supabase.functions.invoke('create-studio', {
-        body: {
-          name: newStudio.name,
-          slug: newStudio.slug,
-          ownerEmail: newStudio.ownerEmail,
-          ownerPassword: newStudio.ownerPassword,
-          contactPhone: newStudio.contactPhone,
-          location: newStudio.location,
-        },
+      // 1. Create the auth user for this studio
+      const { data: authData, error: authError } = await supabase.auth.signUp({
+        email: newStudio.ownerEmail,
+        password: newStudio.ownerPassword,
+        options: { emailRedirectTo: window.location.origin }
       });
 
-      if (error) throw error;
-      if (data?.error) throw new Error(data.error);
+      if (authError) throw authError;
+      if (!authData.user) throw new Error('Failed to create user');
+
+      const ownerId = authData.user.id;
+
+      // 2. Create the studio
+      const { data: studioData, error: studioError } = await supabase
+        .from('studios')
+        .insert({
+          name: newStudio.name,
+          slug: newStudio.slug,
+          owner_id: ownerId,
+          is_active: true,
+          is_public: true,
+        })
+        .select()
+        .single();
+
+      if (studioError) throw studioError;
+
+      // 3. Assign studio_admin role
+      await supabase.from('user_roles').insert({
+        user_id: ownerId,
+        role: 'studio_admin' as any,
+      });
+
+      // 4. Add as studio member
+      await supabase.from('studio_members').insert({
+        studio_id: studioData.id,
+        user_id: ownerId,
+        role: 'admin',
+      });
+
+      // 5. Create default studio settings
+      await supabase.from('studio_settings').insert({
+        studio_id: studioData.id,
+        contact_phone: newStudio.contactPhone || null,
+        address: newStudio.location || null,
+      });
 
       toast({ title: 'Studio Created!', description: `${newStudio.name} is now active.` });
       setCreateOpen(false);
@@ -208,7 +241,7 @@ const StudiosManager: React.FC = () => {
                     <Button variant="ghost" size="icon"><MoreVertical size={18} /></Button>
                   </DropdownMenuTrigger>
                   <DropdownMenuContent align="end">
-                    <DropdownMenuItem onClick={() => window.open(`/${studio.slug}`, '_blank')}>
+                    <DropdownMenuItem onClick={() => window.open(`/@${studio.slug}`, '_blank')}>
                       <Eye size={16} className="mr-2" /> View Website
                     </DropdownMenuItem>
                     <DropdownMenuItem onClick={() => toggleStudioActive(studio)}>

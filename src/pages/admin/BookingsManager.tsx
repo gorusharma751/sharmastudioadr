@@ -26,7 +26,7 @@ const statusIcons = {
 };
 
 const BookingsManager: React.FC = () => {
-  const { currentStudio } = useAuth();
+  const { studio } = useAuth();
   const { toast } = useToast();
   const [bookings, setBookings] = useState<Booking[]>([]);
   const [loading, setLoading] = useState(true);
@@ -35,19 +35,19 @@ const BookingsManager: React.FC = () => {
   const [search, setSearch] = useState('');
 
   useEffect(() => {
-    if (currentStudio?.id) {
+    if (studio?.id) {
       fetchBookings();
     }
-  }, [currentStudio?.id]);
+  }, [studio?.id]);
 
   const fetchBookings = async () => {
-    if (!currentStudio?.id) return;
+    if (!studio?.id) return;
     
     try {
       const { data, error } = await supabase
         .from('bookings')
         .select('*')
-        .eq('studio_id', currentStudio.id)
+        .eq('studio_id', studio.id)
         .order('created_at', { ascending: false });
 
       if (error) throw error;

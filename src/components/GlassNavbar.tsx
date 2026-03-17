@@ -5,6 +5,7 @@ import { Menu, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 import { supabase } from '@/integrations/supabase/client';
+import { ROUTES } from '@/lib/routes';
 
 interface NavItem {
   label: string;
@@ -14,6 +15,8 @@ interface NavItem {
 interface GlassNavbarProps {
   studioName?: string;
   logoUrl?: string;
+  studioSlug?: string;
+  studioId?: string;
   navItems?: NavItem[];
   showAuth?: boolean;
   isAuthenticated?: boolean;
@@ -23,6 +26,8 @@ interface GlassNavbarProps {
 const GlassNavbar: React.FC<GlassNavbarProps> = ({
   studioName = 'Studio',
   logoUrl,
+  studioSlug,
+  studioId,
   navItems = [],
   showAuth = true,
   isAuthenticated = false,
@@ -45,42 +50,53 @@ const GlassNavbar: React.FC<GlassNavbarProps> = ({
     setIsOpen(false);
   }, [location.pathname]);
 
-  // Fetch dynamic pages for navbar
+  // Fetch dynamic pages for navbar (studio-scoped)
   React.useEffect(() => {
+    if (!studioId) return;
+
     const fetchNavPages = async () => {
       try {
         const { data } = await supabase
           .from('pages')
           .select('title, slug, sort_order')
+          .eq('studio_id', studioId)
           .eq('is_published', true)
           .eq('show_in_nav', true)
           .order('sort_order');
 
         if (data) {
-          setDynamicPages(data.map(p => ({ label: p.title, href: `/page/${p.slug}` })));
+          const basePath = studioSlug ? `/@${studioSlug}` : '';
+          setDynamicPages(data.map(p => ({ label: p.title, href: `${basePath}/page/${p.slug}` })));
         }
       } catch (e) {
         console.error('Error fetching nav pages:', e);
       }
     };
     fetchNavPages();
-  }, []);
+  }, [studioId, studioSlug]);
 
-  const defaultNavItems: NavItem[] = [
-    { label: 'Home', href: '/' },
-    { label: 'Services', href: '/services' },
-    { label: 'Portfolio', href: '/portfolio' },
-    { label: 'Find Photos', href: '/find-photos' },
-    { label: 'About', href: '/about' },
-    { label: 'Booking', href: '/booking' },
-    { label: 'Contact', href: '/contact' },
-  ];
+  const basePath = studioSlug ? `/@${studioSlug}` : '';
+
+  const defaultNavItems: NavItem[] = studioSlug
+    ? [
+        { label: 'Home', href: basePath || '/' },
+        { label: 'Services', href: `${basePath}/services` },
+        { label: 'Portfolio', href: `${basePath}/portfolio` },
+        { label: 'About', href: `${basePath}/about` },
+        { label: 'Booking', href: `${basePath}/booking` },
+        { label: 'Contact', href: `${basePath}/contact` },
+      ]
+    : [
+        { label: 'Home', href: ROUTES.HOME },
+        { label: 'Features', href: ROUTES.FEATURES },
+        { label: 'Pricing', href: ROUTES.PRICING },
+      ];
 
   const staticItems = navItems.length > 0 ? navItems : defaultNavItems;
   const items = [...staticItems, ...dynamicPages];
 
   const handleBookNow = () => {
-    navigate('/booking');
+    navigate(studioSlug ? `${basePath}/booking` : ROUTES.PRICING);
     setIsOpen(false);
   };
 
@@ -89,7 +105,7 @@ const GlassNavbar: React.FC<GlassNavbarProps> = ({
     if (onAuthClick) {
       onAuthClick();
     } else {
-      navigate('/auth');
+      navigate(ROUTES.LOGIN);
     }
   };
 
@@ -107,7 +123,7 @@ const GlassNavbar: React.FC<GlassNavbarProps> = ({
         <div className="section-container">
           <div className="flex items-center justify-between">
             {/* Logo */}
-            <Link to="/" className="flex items-center gap-3 group z-10">
+            <Link to={studioSlug ? basePath : '/'} className="flex items-center gap-3 group z-10">
               {logoUrl ? (
                 <img src={logoUrl} alt={studioName} className="h-10 w-auto" />
               ) : (
@@ -137,7 +153,7 @@ const GlassNavbar: React.FC<GlassNavbarProps> = ({
                 </Button>
               )}
               <Button className="btn-premium px-6" onClick={handleBookNow}>
-                Book Now
+                {studioSlug ? 'Book Now' : 'Get Started'}
               </Button>
             </div>
 
@@ -208,7 +224,7 @@ const GlassNavbar: React.FC<GlassNavbarProps> = ({
                     </Button>
                   )}
                   <Button className="w-full btn-premium h-14 text-lg" onClick={handleBookNow}>
-                    Book Now
+                    {studioSlug ? 'Book Now' : 'Get Started'}
                   </Button>
                 </motion.div>
               </div>

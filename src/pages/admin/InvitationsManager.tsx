@@ -32,7 +32,7 @@ const templates = [
 ];
 
 const InvitationsManager: React.FC = () => {
-  const { currentStudio } = useAuth();
+  const { studio } = useAuth();
   const { toast } = useToast();
   const [invitations, setInvitations] = useState<WeddingInvitation[]>([]);
   const [loading, setLoading] = useState(true);
@@ -48,19 +48,19 @@ const InvitationsManager: React.FC = () => {
   });
 
   useEffect(() => {
-    if (currentStudio?.id) {
+    if (studio?.id) {
       fetchInvitations();
     }
-  }, [currentStudio?.id]);
+  }, [studio?.id]);
 
   const fetchInvitations = async () => {
-    if (!currentStudio?.id) return;
+    if (!studio?.id) return;
     
     try {
       const { data, error } = await supabase
         .from('wedding_invitations')
         .select('*')
-        .eq('studio_id', currentStudio.id)
+        .eq('studio_id', studio.id)
         .order('created_at', { ascending: false });
 
       if (error) throw error;
@@ -99,14 +99,14 @@ const InvitationsManager: React.FC = () => {
   };
 
   const handleSave = async () => {
-    if (!currentStudio?.id || !formData.bride_name || !formData.groom_name) {
+    if (!studio?.id || !formData.bride_name || !formData.groom_name) {
       toast({ title: 'Error', description: 'Names are required', variant: 'destructive' });
       return;
     }
 
     try {
       const payload = {
-        studio_id: currentStudio.id,
+        studio_id: studio.id,
         bride_name: formData.bride_name,
         groom_name: formData.groom_name,
         event_date: formData.event_date || null,
