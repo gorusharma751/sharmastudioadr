@@ -41,6 +41,8 @@ const SettingsManager: React.FC = () => {
     mongodb_uri: '',
     python_api_url: '',
     google_service_account_key: '',
+    theme_type: 'gradient',
+    gradient_angle: 45,
   });
 
   useEffect(() => {
@@ -155,6 +157,7 @@ const SettingsManager: React.FC = () => {
         <TabsList>
           <TabsTrigger value="general">General</TabsTrigger>
           <TabsTrigger value="branding">Branding</TabsTrigger>
+          <TabsTrigger value="theme">Theme</TabsTrigger>
           <TabsTrigger value="contact">Contact</TabsTrigger>
           <TabsTrigger value="seo">SEO</TabsTrigger>
           <TabsTrigger value="integrations">Integrations</TabsTrigger>
@@ -272,6 +275,148 @@ const SettingsManager: React.FC = () => {
                     onChange={e => setSettings({ ...settings, accent_color: e.target.value })}
                     placeholder="#f5f5f5"
                   />
+                </div>
+              </div>
+            </div>
+          </motion.div>
+        </TabsContent>
+
+        <TabsContent value="theme" className="space-y-4">
+          <motion.div
+            initial={{ opacity: 0, y: 10 }}
+            animate={{ opacity: 1, y: 0 }}
+            className="glass-card p-6 space-y-6"
+          >
+            <h3 className="font-semibold flex items-center gap-2">
+              <Palette size={18} className="text-primary" />
+              Theme Configuration
+            </h3>
+
+            <div className="space-y-4">
+              <div className="space-y-2">
+                <Label>Theme Type</Label>
+                <div className="flex gap-4">
+                  <label className="flex items-center gap-2 cursor-pointer">
+                    <input
+                      type="radio"
+                      checked={(settings as any).theme_type === 'solid'}
+                      onChange={() => setSettings({ ...settings, theme_type: 'solid' } as any)}
+                    />
+                    <span className="text-sm">Solid Color</span>
+                  </label>
+                  <label className="flex items-center gap-2 cursor-pointer">
+                    <input
+                      type="radio"
+                      checked={(settings as any).theme_type === 'gradient'}
+                      onChange={() => setSettings({ ...settings, theme_type: 'gradient' } as any)}
+                    />
+                    <span className="text-sm">Gradient</span>
+                  </label>
+                </div>
+              </div>
+
+              <div className="grid md:grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <Label>Primary Color</Label>
+                  <div className="flex gap-2">
+                    <Input
+                      type="color"
+                      value={settings.primary_color || '#D4AF37'}
+                      onChange={e => setSettings({ ...settings, primary_color: e.target.value })}
+                      className="w-16 h-10 p-1 cursor-pointer"
+                    />
+                    <Input
+                      value={settings.primary_color || '#D4AF37'}
+                      onChange={e => setSettings({ ...settings, primary_color: e.target.value })}
+                      placeholder="#D4AF37"
+                    />
+                  </div>
+                </div>
+                <div className="space-y-2">
+                  <Label>Secondary Color</Label>
+                  <div className="flex gap-2">
+                    <Input
+                      type="color"
+                      value={settings.secondary_color || '#1a1a2e'}
+                      onChange={e => setSettings({ ...settings, secondary_color: e.target.value })}
+                      className="w-16 h-10 p-1 cursor-pointer"
+                    />
+                    <Input
+                      value={settings.secondary_color || '#1a1a2e'}
+                      onChange={e => setSettings({ ...settings, secondary_color: e.target.value })}
+                      placeholder="#1a1a2e"
+                    />
+                  </div>
+                </div>
+              </div>
+
+              {(settings as any).theme_type === 'gradient' && (
+                <div className="space-y-2">
+                  <Label>Gradient Angle: {(settings as any).gradient_angle || 45}°</Label>
+                  <input
+                    type="range"
+                    min="0"
+                    max="360"
+                    value={(settings as any).gradient_angle || 45}
+                    onChange={e => setSettings({ ...settings, gradient_angle: parseInt(e.target.value) } as any)}
+                    className="w-full h-2 bg-muted rounded-lg appearance-none cursor-pointer"
+                  />
+                </div>
+              )}
+
+              <div className="space-y-2">
+                <Label>Live Preview</Label>
+                <div
+                  className="h-32 rounded-lg border flex flex-col items-center justify-center text-white font-semibold gap-2"
+                  style={{
+                    background: (settings as any).theme_type === 'gradient'
+                      ? `linear-gradient(${(settings as any).gradient_angle || 45}deg, ${settings.primary_color}, ${settings.secondary_color})`
+                      : settings.primary_color
+                  }}
+                >
+                  <span className="text-2xl">{studioData.name}</span>
+                  <div className="flex gap-2">
+                    <button className="px-4 py-2 bg-white/20 backdrop-blur rounded-lg text-sm hover:bg-white/30 transition-colors">
+                      Button Preview
+                    </button>
+                    <button className="px-4 py-2 bg-white text-gray-900 rounded-lg text-sm hover:bg-white/90 transition-colors">
+                      CTA Button
+                    </button>
+                  </div>
+                </div>
+              </div>
+
+              <div className="p-4 bg-muted/50 rounded-lg border">
+                <h4 className="text-sm font-semibold mb-3">Theme Presets</h4>
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                  <button
+                    onClick={() => setSettings({ ...settings, primary_color: '#D4AF37', secondary_color: '#1a1a2e', theme_type: 'gradient', gradient_angle: 45 } as any)}
+                    className="p-3 rounded-lg border hover:border-primary transition-colors"
+                  >
+                    <div className="h-16 w-full rounded mb-2" style={{ background: 'linear-gradient(45deg, #D4AF37, #1a1a2e)' }} />
+                    <span className="text-xs font-medium">Gold Luxury</span>
+                  </button>
+                  <button
+                    onClick={() => setSettings({ ...settings, primary_color: '#2d2d2d', secondary_color: '#0a0a0a', theme_type: 'gradient', gradient_angle: 135 } as any)}
+                    className="p-3 rounded-lg border hover:border-primary transition-colors"
+                  >
+                    <div className="h-16 w-full rounded mb-2" style={{ background: 'linear-gradient(135deg, #2d2d2d, #0a0a0a)' }} />
+                    <span className="text-xs font-medium">Dark Pro</span>
+                  </button>
+                  <button
+                    onClick={() => setSettings({ ...settings, primary_color: '#ff6b6b', secondary_color: '#ffd93d', theme_type: 'gradient', gradient_angle: 90 } as any)}
+                    className="p-3 rounded-lg border hover:border-primary transition-colors"
+                  >
+                    <div className="h-16 w-full rounded mb-2" style={{ background: 'linear-gradient(90deg, #ff6b6b, #ffd93d)' }} />
+                    <span className="text-xs font-medium">Wedding Soft</span>
+                  </button>
+                  <button
+                    onClick={() => setSettings({ ...settings, primary_color: '#f5f5f5', secondary_color: '#ffffff', theme_type: 'solid', gradient_angle: 0 } as any)}
+                    className="p-3 rounded-lg border hover:border-primary transition-colors"
+                  >
+                    <div className="h-16 w-full rounded mb-2 bg-gray-100" />
+                    <span className="text-xs font-medium">Minimal White</span>
+                  </button>
                 </div>
               </div>
             </div>

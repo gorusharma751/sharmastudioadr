@@ -30,18 +30,21 @@ const StudioAdminLayout: React.FC = () => {
   const location = useLocation();
   const navigate = useNavigate();
 
-  // Redirect if not authenticated or wrong role
+  // ── Route guard ─────────────────────────────────────────────────────────
   useEffect(() => {
-    if (!loading && !user) {
-      navigate(ROUTES.LOGIN_STUDIO);
+    if (loading) return;
+    if (!user) {
+      navigate(ROUTES.LOGIN_STUDIO, { replace: true });
+      return;
     }
     // Super admin must NEVER access studio dashboard
-    if (!loading && user && isSuperAdmin) {
-      navigate(ROUTES.ADMIN);
+    if (isSuperAdmin) {
+      navigate(ROUTES.ADMIN, { replace: true });
+      return;
     }
-    // Non-studio-admin users (e.g. no role assigned yet) get sent to login
-    if (!loading && user && !isStudioAdmin && !isSuperAdmin) {
-      navigate(ROUTES.LOGIN_STUDIO);
+    // Any other non-studio-admin role
+    if (!isStudioAdmin) {
+      navigate(ROUTES.LOGIN_STUDIO, { replace: true });
     }
   }, [user, loading, isSuperAdmin, isStudioAdmin, navigate]);
 
@@ -95,6 +98,8 @@ const StudioAdminLayout: React.FC = () => {
   }
 
   if (!user) return null;
+  // Hard render guard — never show studio UI to super admin or wrong role
+  if (!isStudioAdmin) return null;
 
   const studioPublicUrl = studio?.slug ? `/@${studio.slug}` : '/';
 

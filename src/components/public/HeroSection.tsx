@@ -4,6 +4,7 @@ import { ArrowRight, Play, Star, Camera, Video, Sparkles } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { SectionContainer } from '@/components/ui/shared';
 import { Link, useNavigate } from 'react-router-dom';
+import { useStudio } from '@/contexts/StudioContext';
 
 // Premium placeholder images for hero
 const heroImages = [
@@ -14,9 +15,19 @@ const heroImages = [
 
 const HeroSection: React.FC = () => {
   const navigate = useNavigate();
+  const { settings } = useStudio();
+
+  const themeType = (settings as any)?.theme_type || 'gradient';
+  const primaryColor = settings?.primary_color || '#D4AF37';
+  const secondaryColor = settings?.secondary_color || '#1a1a2e';
+  const gradientAngle = (settings as any)?.gradient_angle || 45;
+
+  const backgroundStyle = themeType === 'gradient'
+    ? { background: `linear-gradient(${gradientAngle}deg, ${primaryColor}, ${secondaryColor})` }
+    : { background: primaryColor };
 
   return (
-    <section className="relative min-h-screen flex items-center hero-gradient overflow-hidden">
+    <section className="relative min-h-screen flex items-center overflow-hidden" style={backgroundStyle}>
       {/* Background Pattern */}
       <div className="absolute inset-0 pattern-dots opacity-30" />
       

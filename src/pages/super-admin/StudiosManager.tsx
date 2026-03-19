@@ -25,6 +25,8 @@ const StudiosManager: React.FC = () => {
   const [newStudio, setNewStudio] = useState({
     name: '', slug: '', ownerEmail: '', ownerPassword: '',
     contactPhone: '', location: '',
+    logoUrl: '', themeType: 'gradient' as 'solid' | 'gradient',
+    primaryColor: '#D4AF37', secondaryColor: '#1a1a2e', gradientAngle: 45,
   });
 
   const fetchStudios = async () => {
@@ -87,16 +89,25 @@ const StudiosManager: React.FC = () => {
         role: 'admin',
       });
 
-      // 5. Create default studio settings
+      // 5. Create default studio settings with branding
       await supabase.from('studio_settings').insert({
         studio_id: studioData.id,
         contact_phone: newStudio.contactPhone || null,
         address: newStudio.location || null,
+        logo_url: newStudio.logoUrl || null,
+        theme_type: newStudio.themeType,
+        primary_color: newStudio.primaryColor,
+        secondary_color: newStudio.secondaryColor,
+        gradient_angle: newStudio.gradientAngle,
       });
 
       toast({ title: 'Studio Created!', description: `${newStudio.name} is now active.` });
       setCreateOpen(false);
-      setNewStudio({ name: '', slug: '', ownerEmail: '', ownerPassword: '', contactPhone: '', location: '' });
+      setNewStudio({
+        name: '', slug: '', ownerEmail: '', ownerPassword: '',
+        contactPhone: '', location: '', logoUrl: '', themeType: 'gradient',
+        primaryColor: '#D4AF37', secondaryColor: '#1a1a2e', gradientAngle: 45
+      });
       fetchStudios();
     } catch (err: any) {
       toast({ title: 'Error', description: err.message, variant: 'destructive' });
@@ -136,49 +147,136 @@ const StudiosManager: React.FC = () => {
               <Plus size={18} className="mr-2" /> Create Studio
             </Button>
           </DialogTrigger>
-          <DialogContent className="sm:max-w-lg">
+          <DialogContent className="sm:max-w-2xl max-h-[90vh] overflow-y-auto">
             <DialogHeader>
               <DialogTitle className="font-display text-xl">Create New Studio</DialogTitle>
             </DialogHeader>
-            <div className="space-y-4 py-4">
-              <div className="grid grid-cols-2 gap-4">
-                <div className="space-y-2">
-                  <Label>Studio Name *</Label>
-                  <Input value={newStudio.name} onChange={e => setNewStudio(p => ({ ...p, name: e.target.value }))}
-                    placeholder="Sharma Studio" />
+            <div className="space-y-6 py-4">
+              {/* SECTION 1 - Basic Info */}
+              <div className="space-y-4">
+                <h3 className="text-sm font-semibold text-muted-foreground uppercase tracking-wider">Basic Information</h3>
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <Label>Studio Name *</Label>
+                    <Input value={newStudio.name} onChange={e => setNewStudio(p => ({ ...p, name: e.target.value }))}
+                      placeholder="Sharma Studio" />
+                  </div>
+                  <div className="space-y-2">
+                    <Label>Studio Slug *</Label>
+                    <Input value={newStudio.slug} onChange={e => setNewStudio(p => ({ ...p, slug: e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, '-') }))}
+                      placeholder="sharma-studio" />
+                  </div>
                 </div>
-                <div className="space-y-2">
-                  <Label>Studio Slug *</Label>
-                  <Input value={newStudio.slug} onChange={e => setNewStudio(p => ({ ...p, slug: e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, '-') }))}
-                    placeholder="sharma-studio" />
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <Label>Owner Email *</Label>
+                    <Input type="email" value={newStudio.ownerEmail}
+                      onChange={e => setNewStudio(p => ({ ...p, ownerEmail: e.target.value }))}
+                      placeholder="admin@sharmastudio.com" />
+                  </div>
+                  <div className="space-y-2">
+                    <Label>Owner Password *</Label>
+                    <Input type="password" value={newStudio.ownerPassword}
+                      onChange={e => setNewStudio(p => ({ ...p, ownerPassword: e.target.value }))}
+                      placeholder="••••••••" />
+                  </div>
+                </div>
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <Label>Contact Phone</Label>
+                    <Input value={newStudio.contactPhone}
+                      onChange={e => setNewStudio(p => ({ ...p, contactPhone: e.target.value }))}
+                      placeholder="+91 98765 43210" />
+                  </div>
+                  <div className="space-y-2">
+                    <Label>Location</Label>
+                    <Input value={newStudio.location}
+                      onChange={e => setNewStudio(p => ({ ...p, location: e.target.value }))}
+                      placeholder="Mumbai, India" />
+                  </div>
                 </div>
               </div>
-              <div className="grid grid-cols-2 gap-4">
+
+              {/* SECTION 2 - Branding */}
+              <div className="space-y-4">
+                <h3 className="text-sm font-semibold text-muted-foreground uppercase tracking-wider">Branding</h3>
                 <div className="space-y-2">
-                  <Label>Owner Email *</Label>
-                  <Input type="email" value={newStudio.ownerEmail}
-                    onChange={e => setNewStudio(p => ({ ...p, ownerEmail: e.target.value }))}
-                    placeholder="admin@sharmastudio.com" />
+                  <Label>Logo URL</Label>
+                  <Input value={newStudio.logoUrl}
+                    onChange={e => setNewStudio(p => ({ ...p, logoUrl: e.target.value }))}
+                    placeholder="https://example.com/logo.png" />
+                  <p className="text-xs text-muted-foreground">Upload your logo to a hosting service and paste the URL here</p>
                 </div>
-                <div className="space-y-2">
-                  <Label>Owner Password *</Label>
-                  <Input type="password" value={newStudio.ownerPassword}
-                    onChange={e => setNewStudio(p => ({ ...p, ownerPassword: e.target.value }))}
-                    placeholder="••••••••" />
-                </div>
+                {newStudio.logoUrl && (
+                  <div className="flex items-center gap-3 p-3 bg-muted rounded-lg">
+                    <img src={newStudio.logoUrl} alt="Logo preview" className="h-12 w-12 object-contain rounded" />
+                    <span className="text-sm text-muted-foreground">Logo preview</span>
+                  </div>
+                )}
               </div>
-              <div className="grid grid-cols-2 gap-4">
+
+              {/* SECTION 3 - Theme */}
+              <div className="space-y-4">
+                <h3 className="text-sm font-semibold text-muted-foreground uppercase tracking-wider">Theme Configuration</h3>
                 <div className="space-y-2">
-                  <Label>Contact Phone</Label>
-                  <Input value={newStudio.contactPhone}
-                    onChange={e => setNewStudio(p => ({ ...p, contactPhone: e.target.value }))}
-                    placeholder="+91 98765 43210" />
+                  <Label>Theme Type</Label>
+                  <div className="flex gap-4">
+                    <label className="flex items-center gap-2 cursor-pointer">
+                      <input type="radio" checked={newStudio.themeType === 'solid'}
+                        onChange={() => setNewStudio(p => ({ ...p, themeType: 'solid' }))} />
+                      <span className="text-sm">Solid Color</span>
+                    </label>
+                    <label className="flex items-center gap-2 cursor-pointer">
+                      <input type="radio" checked={newStudio.themeType === 'gradient'}
+                        onChange={() => setNewStudio(p => ({ ...p, themeType: 'gradient' }))} />
+                      <span className="text-sm">Gradient</span>
+                    </label>
+                  </div>
                 </div>
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <Label>Primary Color</Label>
+                    <div className="flex gap-2">
+                      <Input type="color" value={newStudio.primaryColor}
+                        onChange={e => setNewStudio(p => ({ ...p, primaryColor: e.target.value }))}
+                        className="w-20 h-10 p-1 cursor-pointer" />
+                      <Input value={newStudio.primaryColor}
+                        onChange={e => setNewStudio(p => ({ ...p, primaryColor: e.target.value }))}
+                        placeholder="#D4AF37" />
+                    </div>
+                  </div>
+                  <div className="space-y-2">
+                    <Label>Secondary Color</Label>
+                    <div className="flex gap-2">
+                      <Input type="color" value={newStudio.secondaryColor}
+                        onChange={e => setNewStudio(p => ({ ...p, secondaryColor: e.target.value }))}
+                        className="w-20 h-10 p-1 cursor-pointer" />
+                      <Input value={newStudio.secondaryColor}
+                        onChange={e => setNewStudio(p => ({ ...p, secondaryColor: e.target.value }))}
+                        placeholder="#1a1a2e" />
+                    </div>
+                  </div>
+                </div>
+                {newStudio.themeType === 'gradient' && (
+                  <div className="space-y-2">
+                    <Label>Gradient Angle: {newStudio.gradientAngle}°</Label>
+                    <input type="range" min="0" max="360" value={newStudio.gradientAngle}
+                      onChange={e => setNewStudio(p => ({ ...p, gradientAngle: parseInt(e.target.value) }))}
+                      className="w-full" />
+                  </div>
+                )}
                 <div className="space-y-2">
-                  <Label>Location</Label>
-                  <Input value={newStudio.location}
-                    onChange={e => setNewStudio(p => ({ ...p, location: e.target.value }))}
-                    placeholder="Mumbai, India" />
+                  <Label>Preview</Label>
+                  <div
+                    className="h-24 rounded-lg border flex items-center justify-center text-white font-semibold"
+                    style={{
+                      background: newStudio.themeType === 'gradient'
+                        ? `linear-gradient(${newStudio.gradientAngle}deg, ${newStudio.primaryColor}, ${newStudio.secondaryColor})`
+                        : newStudio.primaryColor
+                    }}
+                  >
+                    {newStudio.name || 'Studio Theme Preview'}
+                  </div>
                 </div>
               </div>
             </div>

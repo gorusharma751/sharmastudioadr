@@ -3,71 +3,104 @@ import { User, Session } from '@supabase/supabase-js';
 import { supabase } from '@/integrations/supabase/client';
 import { AppRole, Studio } from '@/types/database';
 
-// ─── Hardcoded Super Admin credentials ───────────────────────────────────────
-const SUPER_ADMIN_EMAIL = 'superadmin@gmail.com';
+// ─────────────────────────────────────────────────────────────────────────────
+// HARDCODED SUPER ADMIN — never stored in DB, never touches Supabase auth
+// ─────────────────────────────────────────────────────────────────────────────
+const SUPER_ADMIN_EMAIL    = 'superadmin@gmail.com';
 const SUPER_ADMIN_PASSWORD = 'passwordAdmin@2025';
+const SA_SESSION_KEY       = 'trivora_sa_session'; // sessionStorage key
 
+/** Build a virtual Supabase-compatible User for the super admin. */
+const makeSuperAdminUser = (): User =>
+  ({
+    id:               'super-admin-hardcoded',
+    aud:              'authenticated',
+    role:             'authenticated',
+    email:            SUPER_ADMIN_EMAIL,
+    email_confirmed_at: new Date().toISOString(),
+    created_at:       new Date().toISOString(),
+    updated_at:       new Date().toISOString(),
+    app_metadata:     {},
+    user_metadata:    {},
+    identities:       [],
+  } as unknown as User);
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Context shape
+// ─────────────────────────────────────────────────────────────────────────────
 interface AuthContextType {
-  user: User | null;
-  session: Session | null;
-  loading: boolean;
-  role: AppRole | null;
-  isSuperAdmin: boolean;
-  isStudioAdmin: boolean;
-  studio: Studio | null;
-  signIn: (email: string, password: string) => Promise<{ error: Error | null; redirectTo?: string }>;
-  signUp: (email: string, password: string) => Promise<{ error: Error | null }>;
-  signOut: () => Promise<void>;
-  refreshUserData: () => Promise<void>;
+  user:             User | null;
+  session:          Session | null;
+  loading:          boolean;
+  role:             AppRole | null;
+  isSuperAdmin:     boolean;
+  isStudioAdmin:    boolean;
+  studio:           Studio | null;
+  signIn:           (email: string, password: string) => Promise<{ error: Error | null; redirectTo?: string }>;
+  signUp:           (email: string, password: string) => Promise<{ error: Error | null }>;
+  signOut:          () => Promise<void>;
+  refreshUserData:  () => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Provider
+// ─────────────────────────────────────────────────────────────────────────────
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const [user, setUser] = useState<User | null>(null);
+  const [user,    setUser]    = useState<User | null>(null);
   const [session, setSession] = useState<Session | null>(null);
   const [loading, setLoading] = useState(true);
-  const [role, setRole] = useState<AppRole | null>(null);
-  const [studio, setStudio] = useState<Studio | null>(null);
+  const [role,    setRole]    = useState<AppRole | null>(null);
+  const [studio,  setStudio]  = useState<Studio | null>(null);
 
-  const isSuperAdmin = role === 'super_admin';
+  const isSuperAdmin  = role === 'super_admin';
   const isStudioAdmin = role === 'studio_admin';
 
+  // ── Activate super admin locally (no Supabase involved) ────────────────
+  const activateSuperAdmin = () => {
+    sessionStorage.setItem(SA_SESSION_KEY, 'true');
+    setUser(makeSuperAdminUser());
+    setSession(null);
+    setRole('super_admin');
+    setStudio(null);
+  };
+
+  // ── Clear all auth state ────────────────────────────────────────────────
+  const clearState = () => {
+    setUser(null);
+    setSession(null);
+    setRole(null);
+    setStudio(null);
+  };
+
+  // ── Fetch role + studio for a normal Supabase user ─────────────────────
   const fetchUserData = async (userId: string, email?: string) => {
     try {
-      // ── Check if this is the hardcoded super admin ──────────────────────
+      // Safety net: if somehow the super admin email arrives here, handle it
       if (email?.toLowerCase() === SUPER_ADMIN_EMAIL.toLowerCase()) {
         setRole('super_admin');
         setStudio(null);
         return;
       }
 
-      // ── Otherwise check user_roles table ────────────────────────────────
+      // ── STEP 3: Fetch role from DB ──────────────────────────────────────
       const { data: roleData } = await supabase
         .from('user_roles')
         .select('role')
         .eq('user_id', userId)
         .maybeSingle();
 
-      if (roleData) {
-        // Super admin email check: block non-hardcoded users from claiming super_admin
-        if (roleData.role === 'super_admin' && email?.toLowerCase() !== SUPER_ADMIN_EMAIL.toLowerCase()) {
-          setRole('studio_admin');
-        } else {
-          setRole(roleData.role as AppRole);
-        }
-      } else {
-        // No role entry → default to studio_admin for authenticated users
+      const dbRole = roleData?.role as AppRole | undefined;
+
+      // ── STEP 4: SECURITY PATCH — downgrade any DB super_admin claim ─────
+      if (dbRole === 'super_admin') {
         setRole('studio_admin');
+      } else {
+        setRole(dbRole ?? 'studio_admin');
       }
 
-      // Super admin does NOT need a studio context
-      if (email?.toLowerCase() === SUPER_ADMIN_EMAIL.toLowerCase()) {
-        setStudio(null);
-        return;
-      }
-
-      // Studio admin: fetch the single studio they own
+      // ── Fetch owned studio ──────────────────────────────────────────────
       const { data: ownedStudio } = await supabase
         .from('studios')
         .select('*, saas_plans(*)')
@@ -76,41 +109,45 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
       if (ownedStudio) {
         setStudio(ownedStudio as Studio);
-      } else {
-        // Fallback: check if they are a member of a studio
-        const { data: memberData } = await supabase
-          .from('studio_members')
-          .select('studio_id, studios(*, saas_plans(*))')
-          .eq('user_id', userId)
-          .limit(1)
-          .maybeSingle();
-
-        if (memberData?.studios) {
-          setStudio(memberData.studios as unknown as Studio);
-        } else {
-          setStudio(null);
-        }
+        return;
       }
-    } catch (error) {
-      console.error('Error fetching user data:', error);
+
+      // Fallback: studio membership
+      const { data: memberData } = await supabase
+        .from('studio_members')
+        .select('studio_id, studios(*, saas_plans(*))')
+        .eq('user_id', userId)
+        .limit(1)
+        .maybeSingle();
+
+      setStudio((memberData?.studios as unknown as Studio) ?? null);
+    } catch (err) {
+      console.error('fetchUserData error:', err);
     }
   };
 
   const refreshUserData = async () => {
-    if (user) {
-      await fetchUserData(user.id, user.email);
-    }
+    if (isSuperAdmin) return; // super admin has no DB data
+    if (user) await fetchUserData(user.id, user.email);
   };
 
+  // ── Mount: restore session ─────────────────────────────────────────────
   useEffect(() => {
-    // Set up auth state listener
+    // ── 1) Restore super admin session from sessionStorage ────────────────
+    if (sessionStorage.getItem(SA_SESSION_KEY) === 'true') {
+      activateSuperAdmin();
+      setLoading(false);
+      return; // Skip Supabase — super admin never needs it
+    }
+
+    // ── 2) Normal Supabase auth listener ─────────────────────────────────
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
-      (event, session) => {
+      (_event, session) => {
         setSession(session);
         setUser(session?.user ?? null);
 
         if (session?.user) {
-          // Defer Supabase calls to avoid deadlock
+          // Defer to avoid Supabase deadlock
           setTimeout(() => {
             fetchUserData(session.user.id, session.user.email);
           }, 0);
@@ -123,73 +160,79 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       }
     );
 
-    // Check for existing session
     supabase.auth.getSession().then(({ data: { session } }) => {
       setSession(session);
       setUser(session?.user ?? null);
-
-      if (session?.user) {
-        fetchUserData(session.user.id, session.user.email);
-      }
-
+      if (session?.user) fetchUserData(session.user.id, session.user.email);
       setLoading(false);
     });
 
     return () => subscription.unsubscribe();
-  }, []);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const signIn = async (email: string, password: string): Promise<{ error: Error | null; redirectTo?: string }> => {
-    // ── 1) Check hardcoded super admin first ──────────────────────────────
-    if (
-      email.toLowerCase() === SUPER_ADMIN_EMAIL.toLowerCase() &&
-      password === SUPER_ADMIN_PASSWORD
-    ) {
-      // Attempt Supabase sign-in (the account must exist in Supabase Auth)
-      const { error } = await supabase.auth.signInWithPassword({ email, password });
-      if (error) {
-        return { error: error as Error };
-      }
-      // Role will be set via onAuthStateChange → fetchUserData
-      return { error: null, redirectTo: '/admin' };
-    }
+  // ─────────────────────────────────────────────────────────────────────────
+  // signIn
+  // ─────────────────────────────────────────────────────────────────────────
+  const signIn = async (
+    email: string,
+    password: string,
+  ): Promise<{ error: Error | null; redirectTo?: string }> => {
 
-    // ── 2) Block super admin email with wrong password ────────────────────
+    console.log('LOGIN ATTEMPT', email);
+
+    // ── STEP 1: Super admin check — NEVER touches Supabase ────────────────
     if (email.toLowerCase() === SUPER_ADMIN_EMAIL.toLowerCase()) {
-      return { error: new Error('Invalid login credentials') };
+      if (password === SUPER_ADMIN_PASSWORD) {
+        console.log('SUPER ADMIN MATCHED');
+        activateSuperAdmin();
+        console.log('REDIRECTING TO /admin');
+        return { error: null, redirectTo: '/admin' };
+      }
+      // Wrong password for super admin email
+      return { error: new Error('Invalid login credentials'), redirectTo: undefined };
     }
 
-    // ── 3) Regular studio user sign-in ────────────────────────────────────
-    const { error } = await supabase.auth.signInWithPassword({ email, password });
+    // ── STEP 2: Supabase login for studio users ───────────────────────────
+    const { data, error } = await supabase.auth.signInWithPassword({ email, password });
     if (error) {
-      return { error: error as Error };
+      return { error: error as Error, redirectTo: undefined };
     }
+
+    // ── STEP 3: Fetch role from DB ────────────────────────────────────────
+    await fetchUserData(data.user.id, data.user.email);
+
+    // ── STEP 5: Return redirect ───────────────────────────────────────────
+    console.log('REDIRECTING TO /dashboard');
     return { error: null, redirectTo: '/dashboard' };
   };
 
+  // ─────────────────────────────────────────────────────────────────────────
+  // signUp
+  // ─────────────────────────────────────────────────────────────────────────
   const signUp = async (email: string, password: string) => {
-    // Block super admin email from being registered as a studio user
     if (email.toLowerCase() === SUPER_ADMIN_EMAIL.toLowerCase()) {
       return { error: new Error('This email is reserved.') };
     }
-
-    const redirectUrl = `${window.location.origin}/`;
-
     const { error } = await supabase.auth.signUp({
       email,
       password,
-      options: {
-        emailRedirectTo: redirectUrl
-      }
+      options: { emailRedirectTo: `${window.location.origin}/` },
     });
     return { error: error as Error | null };
   };
 
+  // ─────────────────────────────────────────────────────────────────────────
+  // signOut
+  // ─────────────────────────────────────────────────────────────────────────
   const signOut = async () => {
-    await supabase.auth.signOut();
-    setUser(null);
-    setSession(null);
-    setRole(null);
-    setStudio(null);
+    if (sessionStorage.getItem(SA_SESSION_KEY) === 'true') {
+      // Super admin logout — only clear local state, nothing to revoke in Supabase
+      sessionStorage.removeItem(SA_SESSION_KEY);
+      clearState();
+    } else {
+      await supabase.auth.signOut();
+      clearState();
+    }
   };
 
   return (

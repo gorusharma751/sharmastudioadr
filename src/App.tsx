@@ -57,6 +57,10 @@ import AlbumSettingsManager from "./pages/admin/AlbumSettingsManager";
 // Super Admin Pages
 import SuperAdminDashboard from "./pages/super-admin/Dashboard";
 import StudiosManager from "./pages/super-admin/StudiosManager";
+import PlansManager from "./pages/super-admin/PlansManager";
+import UsersManager from "./pages/super-admin/UsersManager";
+import AnalyticsPage from "./pages/super-admin/AnalyticsPage";
+import PlatformSettings from "./pages/super-admin/PlatformSettings";
 
 const queryClient = new QueryClient();
 
@@ -88,6 +92,10 @@ const App = () => (
             <Route path="/admin" element={<SuperAdminLayout />}>
               <Route index element={<SuperAdminDashboard />} />
               <Route path="studios" element={<StudiosManager />} />
+              <Route path="plans" element={<PlansManager />} />
+              <Route path="users" element={<UsersManager />} />
+              <Route path="analytics" element={<AnalyticsPage />} />
+              <Route path="settings" element={<PlatformSettings />} />
             </Route>
 
             {/* ==================== */}

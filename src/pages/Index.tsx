@@ -21,6 +21,7 @@ const Index: React.FC = () => {
         studioId={studio?.id}
         showAuth={true}
         onAuthClick={() => navigate("/login")}
+        settings={settings}
       />
       <HeroSection />
       <ServicesSection />

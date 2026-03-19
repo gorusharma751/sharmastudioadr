@@ -6,6 +6,7 @@ import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 import { supabase } from '@/integrations/supabase/client';
 import { ROUTES } from '@/lib/routes';
+import { StudioSettings } from '@/types/database';
 
 interface NavItem {
   label: string;
@@ -21,6 +22,7 @@ interface GlassNavbarProps {
   showAuth?: boolean;
   isAuthenticated?: boolean;
   onAuthClick?: () => void;
+  settings?: Partial<StudioSettings>;
 }
 
 const GlassNavbar: React.FC<GlassNavbarProps> = ({
@@ -32,12 +34,19 @@ const GlassNavbar: React.FC<GlassNavbarProps> = ({
   showAuth = true,
   isAuthenticated = false,
   onAuthClick,
+  settings,
 }) => {
   const [isOpen, setIsOpen] = React.useState(false);
   const [scrolled, setScrolled] = React.useState(false);
   const [dynamicPages, setDynamicPages] = React.useState<NavItem[]>([]);
   const location = useLocation();
   const navigate = useNavigate();
+
+  const primaryColor = settings?.primary_color || '#D4AF37';
+  const buttonStyle = {
+    backgroundColor: primaryColor,
+    color: '#fff'
+  };
 
   React.useEffect(() => {
     const handleScroll = () => setScrolled(window.scrollY > 20);
@@ -152,7 +161,7 @@ const GlassNavbar: React.FC<GlassNavbarProps> = ({
                   {isAuthenticated ? 'Dashboard' : 'Login'}
                 </Button>
               )}
-              <Button className="btn-premium px-6" onClick={handleBookNow}>
+              <Button className="btn-premium px-6" style={buttonStyle} onClick={handleBookNow}>
                 {studioSlug ? 'Book Now' : 'Get Started'}
               </Button>
             </div>
@@ -223,7 +232,7 @@ const GlassNavbar: React.FC<GlassNavbarProps> = ({
                       {isAuthenticated ? 'Dashboard' : 'Login'}
                     </Button>
                   )}
-                  <Button className="w-full btn-premium h-14 text-lg" onClick={handleBookNow}>
+                  <Button className="w-full btn-premium h-14 text-lg" style={buttonStyle} onClick={handleBookNow}>
                     {studioSlug ? 'Book Now' : 'Get Started'}
                   </Button>
                 </motion.div>

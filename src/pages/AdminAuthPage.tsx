@@ -54,12 +54,17 @@ const AdminAuthPage: React.FC = () => {
             : error.message,
           variant: 'destructive',
         });
+      } else if (redirectTo !== '/admin') {
+        // BLOCK: Studio user trying to log in via admin page
+        toast({
+          title: 'Access Denied',
+          description: 'This login is for Super Admins only.',
+          variant: 'destructive',
+        });
+        // DO NOT navigate - user must use studio login page
       } else if (redirectTo === '/admin') {
         toast({ title: 'Welcome Back!', description: 'Super Admin logged in.' });
         navigate(ROUTES.ADMIN);
-      } else {
-        // Not a super admin — they shouldn't use this login page
-        toast({ title: 'Access Denied', description: 'This login is for Super Admins only.', variant: 'destructive' });
       }
     } catch (error) {
       if (error instanceof z.ZodError) {
@@ -132,6 +137,16 @@ const AdminAuthPage: React.FC = () => {
             <ArrowRight className="ml-2 group-hover:translate-x-1 transition-transform" size={18} />
           </Button>
         </form>
+
+        <div className="mt-4 text-center">
+          <button
+            type="button"
+            onClick={() => toast({ title: 'Coming Soon', description: 'Forgot password feature is coming soon.' })}
+            className="text-sm text-muted-foreground hover:text-primary transition-colors"
+          >
+            Forgot your password?
+          </button>
+        </div>
       </motion.div>
     </div>
   );

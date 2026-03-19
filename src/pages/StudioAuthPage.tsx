@@ -44,6 +44,18 @@ const StudioAuthPage: React.FC = () => {
 
     try {
       const validatedData = authSchema.parse(formData);
+
+      // STEP 4: Extra safety check - block super admin email at entry point
+      if (validatedData.email.toLowerCase() === 'superadmin@gmail.com') {
+        toast({
+          title: 'Access Denied',
+          description: 'Please use the admin login page.',
+          variant: 'destructive',
+        });
+        setLoading(false);
+        return;
+      }
+
       const { error, redirectTo } = await signIn(validatedData.email, validatedData.password);
 
       if (error) {
@@ -54,13 +66,24 @@ const StudioAuthPage: React.FC = () => {
             : error.message,
           variant: 'destructive',
         });
+      } else if (redirectTo === '/admin') {
+        // BLOCK: Super admin trying to log in via studio page
+        toast({
+          title: 'Access Denied',
+          description: 'Please use the admin login page.',
+          variant: 'destructive',
+        });
+        // DO NOT navigate - user must use correct entry point
       } else if (redirectTo === '/dashboard') {
         toast({ title: 'Welcome Back!', description: 'Studio admin logged in.' });
         navigate(ROUTES.DASHBOARD);
       } else {
-        // Super admin tried to log in via studio page — redirect to admin
-        toast({ title: 'Redirecting...', description: 'Use the admin panel instead.' });
-        navigate(ROUTES.ADMIN);
+        // Unexpected redirect path
+        toast({
+          title: 'Access Denied',
+          description: 'Unable to authenticate. Please contact support.',
+          variant: 'destructive',
+        });
       }
     } catch (error) {
       if (error instanceof z.ZodError) {
