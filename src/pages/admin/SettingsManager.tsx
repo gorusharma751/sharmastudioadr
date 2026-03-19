@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { motion } from 'framer-motion';
 import { Save, Palette, Mail, Phone, MapPin, Globe, Link2, Image, Database, Server, Key, Eye, EyeOff } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
@@ -10,6 +10,18 @@ import { Label } from '@/components/ui/label';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { useToast } from '@/hooks/use-toast';
 import { StudioSettings } from '@/types/database';
+
+// Debounce utility
+function debounce<T extends (...args: any[]) => any>(
+  func: T,
+  wait: number
+): (...args: Parameters<T>) => void {
+  let timeout: NodeJS.Timeout | null = null;
+  return (...args: Parameters<T>) => {
+    if (timeout) clearTimeout(timeout);
+    timeout = setTimeout(() => func(...args), wait);
+  };
+}
 
 const SettingsManager: React.FC = () => {
   const { studio, refreshUserData } = useAuth();
@@ -83,16 +95,35 @@ const SettingsManager: React.FC = () => {
     setSaving(true);
     try {
       // Update studio
-      const { error: studioError } = await supabase
+      const { data: studioUpdateData, error: studioError } = await supabase
         .from('studios')
         .update({
           name: studioData.name,
           slug: studioData.slug,
           is_public: studioData.is_public,
         })
-        .eq('id', studio.id);
+        .eq('id', studio.id)
+        .select()
+        .single();
 
-      if (studioError) throw studioError;
+      if (studioError) {
+        console.error('Studio update error:', studioError);
+        toast({
+          title: 'Error',
+          description: 'Failed to update studio information',
+          variant: 'destructive'
+        });
+        return;
+      }
+
+      if (!studioUpdateData) {
+        toast({
+          title: 'Error',
+          description: 'No response from server',
+          variant: 'destructive'
+        });
+        return;
+      }
 
       // Update or insert settings
       const { data: existingSettings } = await supabase
@@ -107,27 +138,85 @@ const SettingsManager: React.FC = () => {
       };
 
       if (existingSettings) {
-        const { error } = await supabase
+        // Update existing settings
+        const { data: updatedSettings, error: updateError } = await supabase
           .from('studio_settings')
           .update(settingsPayload)
-          .eq('id', existingSettings.id);
-        if (error) throw error;
+          .eq('id', existingSettings.id)
+          .select()
+          .single();
+
+        if (updateError) {
+          console.error('Settings update error:', updateError);
+          toast({
+            title: 'Error',
+            description: 'Failed to save settings',
+            variant: 'destructive'
+          });
+          return;
+        }
+
+        if (!updatedSettings) {
+          toast({
+            title: 'Error',
+            description: 'No response from server',
+            variant: 'destructive'
+          });
+          return;
+        }
       } else {
-        const { error } = await supabase
+        // Insert new settings
+        const { data: insertedSettings, error: insertError } = await supabase
           .from('studio_settings')
-          .insert(settingsPayload);
-        if (error) throw error;
+          .insert(settingsPayload)
+          .select()
+          .single();
+
+        if (insertError) {
+          console.error('Settings insert error:', insertError);
+          toast({
+            title: 'Error',
+            description: 'Failed to create settings',
+            variant: 'destructive'
+          });
+          return;
+        }
+
+        if (!insertedSettings) {
+          toast({
+            title: 'Error',
+            description: 'No response from server',
+            variant: 'destructive'
+          });
+          return;
+        }
       }
 
-      toast({ title: 'Success', description: 'Settings saved successfully' });
+      // Success - only reached if all operations succeeded
+      toast({
+        title: 'Success',
+        description: 'Settings saved successfully'
+      });
       refreshUserData();
     } catch (error) {
-      console.error('Error saving settings:', error);
-      toast({ title: 'Error', description: 'Failed to save settings', variant: 'destructive' });
+      console.error('Unexpected error saving settings:', error);
+      toast({
+        title: 'Error',
+        description: 'An unexpected error occurred',
+        variant: 'destructive'
+      });
     } finally {
       setSaving(false);
     }
   };
+
+  // Debounced save for auto-save features
+  const debouncedSave = useCallback(
+    debounce(() => {
+      handleSave();
+    }, 1000),
+    [studio?.id, studioData, settings]
+  );
 
   if (loading) {
     return (
