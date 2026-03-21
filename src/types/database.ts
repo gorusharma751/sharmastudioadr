@@ -61,6 +61,8 @@ export interface StudioSettings {
   mongodb_uri: string | null;
   python_api_url: string | null;
   google_service_account_key: string | null;
+  theme_type: string;
+  gradient_angle: number;
   created_at: string;
   updated_at: string;
 }

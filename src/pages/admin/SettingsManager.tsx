@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
 import { Save, Palette, Mail, Phone, MapPin, Globe, Link2, Image, Database, Server, Key, Eye, EyeOff } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
@@ -53,7 +53,7 @@ const SettingsManager: React.FC = () => {
     mongodb_uri: '',
     python_api_url: '',
     google_service_account_key: '',
-    theme_type: 'gradient',
+    theme_type: 'solid',
     gradient_angle: 45,
   });
 
@@ -73,7 +73,7 @@ const SettingsManager: React.FC = () => {
         is_public: studio.is_public,
       });
 
-      const { data, error } = await supabase
+      const { data } = await supabase
         .from('studio_settings')
         .select('*')
         .eq('studio_id', studio.id)
@@ -94,129 +94,109 @@ const SettingsManager: React.FC = () => {
 
     setSaving(true);
     try {
-      // Update studio
-      const { data: studioUpdateData, error: studioError } = await supabase
-        .from('studios')
-        .update({
-          name: studioData.name,
-          slug: studioData.slug,
-          is_public: studioData.is_public,
+      // Prepare settings payload - only include fields that exist
+      const settingsPayload: any = {
+        studio_id: studio.id,
+        logo_url: settings.logo_url || null,
+        primary_color: settings.primary_color,
+        secondary_color: settings.secondary_color,
+        accent_color: settings.accent_color,
+        contact_email: settings.contact_email || null,
+        contact_phone: settings.contact_phone || null,
+        address: settings.address || null,
+        meta_title: settings.meta_title || null,
+        meta_description: settings.meta_description || null,
+        meta_keywords: settings.meta_keywords || null,
+        social_facebook: settings.social_facebook || null,
+        social_instagram: settings.social_instagram || null,
+        social_youtube: settings.social_youtube || null,
+        google_drive_folder: settings.google_drive_folder || null,
+        webhook_url: settings.webhook_url || null,
+        mongodb_uri: settings.mongodb_uri || null,
+        python_api_url: settings.python_api_url || null,
+        google_service_account_key: settings.google_service_account_key || null,
+        theme_type: settings.theme_type || 'solid',
+        gradient_angle: settings.gradient_angle ?? 45,
+      };
+
+      // Upsert studio settings
+      const { data, error } = await supabase
+        .from('studio_settings')
+        .upsert(settingsPayload, {
+          onConflict: 'studio_id'
         })
-        .eq('id', studio.id)
         .select()
         .single();
 
-      if (studioError) {
-        console.error('Studio update error:', studioError);
+      if (error) {
+        console.error('Settings save error:', error);
         toast({
           title: 'Error',
-          description: 'Failed to update studio information',
+          description: error.message || 'Failed to save settings',
           variant: 'destructive'
         });
+        setSaving(false);
         return;
       }
 
-      if (!studioUpdateData) {
+      if (!data) {
         toast({
           title: 'Error',
           description: 'No response from server',
           variant: 'destructive'
         });
+        setSaving(false);
         return;
       }
 
-      // Update or insert settings
-      const { data: existingSettings } = await supabase
-        .from('studio_settings')
-        .select('id')
-        .eq('studio_id', studio.id)
-        .maybeSingle();
-
-      const settingsPayload = {
-        studio_id: studio.id,
-        ...settings,
-      };
-
-      if (existingSettings) {
-        // Update existing settings
-        const { data: updatedSettings, error: updateError } = await supabase
-          .from('studio_settings')
-          .update(settingsPayload)
-          .eq('id', existingSettings.id)
-          .select()
-          .single();
-
-        if (updateError) {
-          console.error('Settings update error:', updateError);
-          toast({
-            title: 'Error',
-            description: 'Failed to save settings',
-            variant: 'destructive'
-          });
-          return;
-        }
-
-        if (!updatedSettings) {
-          toast({
-            title: 'Error',
-            description: 'No response from server',
-            variant: 'destructive'
-          });
-          return;
-        }
-      } else {
-        // Insert new settings
-        const { data: insertedSettings, error: insertError } = await supabase
-          .from('studio_settings')
-          .insert(settingsPayload)
-          .select()
-          .single();
-
-        if (insertError) {
-          console.error('Settings insert error:', insertError);
-          toast({
-            title: 'Error',
-            description: 'Failed to create settings',
-            variant: 'destructive'
-          });
-          return;
-        }
-
-        if (!insertedSettings) {
-          toast({
-            title: 'Error',
-            description: 'No response from server',
-            variant: 'destructive'
-          });
-          return;
-        }
-      }
-
-      // Success - only reached if all operations succeeded
+      // Success - only reached if save succeeded
       toast({
         title: 'Success',
         description: 'Settings saved successfully'
       });
       refreshUserData();
+      setSaving(false);
     } catch (error) {
-      console.error('Unexpected error saving settings:', error);
+      console.error('Error saving settings:', error);
       toast({
         title: 'Error',
-        description: 'An unexpected error occurred',
+        description: error instanceof Error ? error.message : 'An unexpected error occurred',
         variant: 'destructive'
       });
-    } finally {
       setSaving(false);
     }
   };
 
-  // Debounced save for auto-save features
-  const debouncedSave = useCallback(
-    debounce(() => {
-      handleSave();
-    }, 1000),
-    [studio?.id, studioData, settings]
-  );
+  // Debounced save for theme controls (prevent rapid requests)
+  const debouncedSaveRef = React.useRef<ReturnType<typeof debounce>>();
+
+  useEffect(() => {
+    if (!debouncedSaveRef.current) {
+      debouncedSaveRef.current = debounce(() => {
+        if (studio?.id && !loading) {
+          handleSave();
+        }
+      }, 500);
+    }
+    return () => {
+      // Cleanup debounce on unmount
+    };
+  }, []);
+
+  // Auto-save when theme settings change
+  useEffect(() => {
+    if (!loading && studio?.id && debouncedSaveRef.current) {
+      debouncedSaveRef.current();
+    }
+  }, [
+    loading,
+    studio?.id,
+    settings.primary_color,
+    settings.secondary_color,
+    settings.accent_color,
+    settings.theme_type,
+    settings.gradient_angle
+  ]);
 
   if (loading) {
     return (
@@ -388,16 +368,16 @@ const SettingsManager: React.FC = () => {
                   <label className="flex items-center gap-2 cursor-pointer">
                     <input
                       type="radio"
-                      checked={(settings as any).theme_type === 'solid'}
-                      onChange={() => setSettings({ ...settings, theme_type: 'solid' } as any)}
+                      checked={settings.theme_type === 'solid'}
+                      onChange={() => setSettings({ ...settings, theme_type: 'solid' })}
                     />
                     <span className="text-sm">Solid Color</span>
                   </label>
                   <label className="flex items-center gap-2 cursor-pointer">
                     <input
                       type="radio"
-                      checked={(settings as any).theme_type === 'gradient'}
-                      onChange={() => setSettings({ ...settings, theme_type: 'gradient' } as any)}
+                      checked={settings.theme_type === 'gradient'}
+                      onChange={() => setSettings({ ...settings, theme_type: 'gradient' })}
                     />
                     <span className="text-sm">Gradient</span>
                   </label>
@@ -439,15 +419,15 @@ const SettingsManager: React.FC = () => {
                 </div>
               </div>
 
-              {(settings as any).theme_type === 'gradient' && (
+              {settings.theme_type === 'gradient' && (
                 <div className="space-y-2">
-                  <Label>Gradient Angle: {(settings as any).gradient_angle || 45}°</Label>
+                  <Label>Gradient Angle: {settings.gradient_angle || 45}°</Label>
                   <input
                     type="range"
                     min="0"
                     max="360"
-                    value={(settings as any).gradient_angle || 45}
-                    onChange={e => setSettings({ ...settings, gradient_angle: parseInt(e.target.value) } as any)}
+                    value={settings.gradient_angle || 45}
+                    onChange={e => setSettings({ ...settings, gradient_angle: parseInt(e.target.value) })}
                     className="w-full h-2 bg-muted rounded-lg appearance-none cursor-pointer"
                   />
                 </div>
@@ -458,8 +438,8 @@ const SettingsManager: React.FC = () => {
                 <div
                   className="h-32 rounded-lg border flex flex-col items-center justify-center text-white font-semibold gap-2"
                   style={{
-                    background: (settings as any).theme_type === 'gradient'
-                      ? `linear-gradient(${(settings as any).gradient_angle || 45}deg, ${settings.primary_color}, ${settings.secondary_color})`
+                    background: settings.theme_type === 'gradient'
+                      ? `linear-gradient(${settings.gradient_angle || 45}deg, ${settings.primary_color}, ${settings.secondary_color})`
                       : settings.primary_color
                   }}
                 >
@@ -479,28 +459,28 @@ const SettingsManager: React.FC = () => {
                 <h4 className="text-sm font-semibold mb-3">Theme Presets</h4>
                 <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
                   <button
-                    onClick={() => setSettings({ ...settings, primary_color: '#D4AF37', secondary_color: '#1a1a2e', theme_type: 'gradient', gradient_angle: 45 } as any)}
+                    onClick={() => setSettings({ ...settings, primary_color: '#D4AF37', secondary_color: '#1a1a2e', theme_type: 'gradient', gradient_angle: 45 })}
                     className="p-3 rounded-lg border hover:border-primary transition-colors"
                   >
                     <div className="h-16 w-full rounded mb-2" style={{ background: 'linear-gradient(45deg, #D4AF37, #1a1a2e)' }} />
                     <span className="text-xs font-medium">Gold Luxury</span>
                   </button>
                   <button
-                    onClick={() => setSettings({ ...settings, primary_color: '#2d2d2d', secondary_color: '#0a0a0a', theme_type: 'gradient', gradient_angle: 135 } as any)}
+                    onClick={() => setSettings({ ...settings, primary_color: '#2d2d2d', secondary_color: '#0a0a0a', theme_type: 'gradient', gradient_angle: 135 })}
                     className="p-3 rounded-lg border hover:border-primary transition-colors"
                   >
                     <div className="h-16 w-full rounded mb-2" style={{ background: 'linear-gradient(135deg, #2d2d2d, #0a0a0a)' }} />
                     <span className="text-xs font-medium">Dark Pro</span>
                   </button>
                   <button
-                    onClick={() => setSettings({ ...settings, primary_color: '#ff6b6b', secondary_color: '#ffd93d', theme_type: 'gradient', gradient_angle: 90 } as any)}
+                    onClick={() => setSettings({ ...settings, primary_color: '#ff6b6b', secondary_color: '#ffd93d', theme_type: 'gradient', gradient_angle: 90 })}
                     className="p-3 rounded-lg border hover:border-primary transition-colors"
                   >
                     <div className="h-16 w-full rounded mb-2" style={{ background: 'linear-gradient(90deg, #ff6b6b, #ffd93d)' }} />
                     <span className="text-xs font-medium">Wedding Soft</span>
                   </button>
                   <button
-                    onClick={() => setSettings({ ...settings, primary_color: '#f5f5f5', secondary_color: '#ffffff', theme_type: 'solid', gradient_angle: 0 } as any)}
+                    onClick={() => setSettings({ ...settings, primary_color: '#f5f5f5', secondary_color: '#ffffff', theme_type: 'solid', gradient_angle: 0 })}
                     className="p-3 rounded-lg border hover:border-primary transition-colors"
                   >
                     <div className="h-16 w-full rounded mb-2 bg-gray-100" />
@@ -657,8 +637,8 @@ const SettingsManager: React.FC = () => {
                 <div className="relative">
                   <Input
                     type={showMongoUri ? 'text' : 'password'}
-                    value={(settings as any).mongodb_uri || ''}
-                    onChange={e => setSettings({ ...settings, mongodb_uri: e.target.value } as any)}
+                    value={settings.mongodb_uri || ''}
+                    onChange={e => setSettings({ ...settings, mongodb_uri: e.target.value })}
                     placeholder="mongodb+srv://user:pass@cluster.mongodb.net/dbname"
                   />
                   <button
@@ -683,8 +663,8 @@ const SettingsManager: React.FC = () => {
               <div className="space-y-2">
                 <Label>Python API Server URL</Label>
                 <Input
-                  value={(settings as any).python_api_url || ''}
-                  onChange={e => setSettings({ ...settings, python_api_url: e.target.value } as any)}
+                  value={settings.python_api_url || ''}
+                  onChange={e => setSettings({ ...settings, python_api_url: e.target.value })}
                   placeholder="https://your-server.com/api"
                 />
                 <p className="text-xs text-muted-foreground">
@@ -703,8 +683,8 @@ const SettingsManager: React.FC = () => {
                 <div className="relative">
                   <textarea
                     className="flex min-h-[120px] w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50 font-mono"
-                    value={(settings as any).google_service_account_key || ''}
-                    onChange={e => setSettings({ ...settings, google_service_account_key: e.target.value } as any)}
+                    value={settings.google_service_account_key || ''}
+                    onChange={e => setSettings({ ...settings, google_service_account_key: e.target.value })}
                     placeholder='{"type": "service_account", "project_id": "...", ...}'
                   />
                 </div>

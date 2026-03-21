@@ -4,7 +4,7 @@ import { Building2, Plus, MoreVertical, Search, Power, Trash2, Edit, Eye } from 
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { supabase } from '@/integrations/supabase/client';
+import { supabase, supabaseAdmin } from '@/integrations/supabase/client';
 import { useToast } from '@/hooks/use-toast';
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter
@@ -49,19 +49,32 @@ const StudiosManager: React.FC = () => {
 
     setCreating(true);
     try {
-      // 1. Create the auth user for this studio
-      const { data: authData, error: authError } = await supabase.auth.signUp({
+      console.log('Starting studio creation...');
+
+      // 1. Create user using Admin API (NO RATE LIMITS!)
+      const { data: authData, error: authError } = await supabaseAdmin.auth.admin.createUser({
         email: newStudio.ownerEmail,
         password: newStudio.ownerPassword,
-        options: { emailRedirectTo: window.location.origin }
+        email_confirm: true, // Auto-confirm, no email sent
+        user_metadata: {
+          role: 'studio_admin',
+          studio_name: newStudio.name
+        }
       });
 
-      if (authError) throw authError;
-      if (!authData.user) throw new Error('Failed to create user');
+      if (authError) {
+        console.error('Admin createUser error:', authError);
+        throw new Error(`Failed to create user: ${authError.message}`);
+      }
+      if (!authData.user) {
+        throw new Error('No user returned from admin.createUser');
+      }
 
       const ownerId = authData.user.id;
+      console.log('✅ User created:', ownerId);
 
       // 2. Create the studio
+      console.log('Creating studio with owner_id:', ownerId);
       const { data: studioData, error: studioError } = await supabase
         .from('studios')
         .insert({
@@ -74,23 +87,42 @@ const StudiosManager: React.FC = () => {
         .select()
         .single();
 
-      if (studioError) throw studioError;
+      if (studioError) {
+        console.error('Studio insert error:', studioError);
+        // Cleanup: delete the user we just created
+        await supabaseAdmin.auth.admin.deleteUser(ownerId);
+        throw new Error(`Failed to create studio: ${studioError.message}`);
+      }
+
+      console.log('✅ Studio created:', studioData.id);
 
       // 3. Assign studio_admin role
-      await supabase.from('user_roles').insert({
+      const { error: roleError } = await supabase.from('user_roles').insert({
         user_id: ownerId,
-        role: 'studio_admin' as any,
+        role: 'studio_admin',
       });
 
+      if (roleError) {
+        console.error('Role insert error:', roleError);
+        throw new Error(`Failed to assign role: ${roleError.message}`);
+      }
+      console.log('✅ Role assigned');
+
       // 4. Add as studio member
-      await supabase.from('studio_members').insert({
+      const { error: memberError } = await supabase.from('studio_members').insert({
         studio_id: studioData.id,
         user_id: ownerId,
         role: 'admin',
       });
 
+      if (memberError) {
+        console.error('Member insert error:', memberError);
+        throw new Error(`Failed to add member: ${memberError.message}`);
+      }
+      console.log('✅ Studio member added');
+
       // 5. Create default studio settings with branding
-      await supabase.from('studio_settings').insert({
+      const { error: settingsError } = await supabase.from('studio_settings').insert({
         studio_id: studioData.id,
         contact_phone: newStudio.contactPhone || null,
         address: newStudio.location || null,
@@ -101,6 +133,12 @@ const StudiosManager: React.FC = () => {
         gradient_angle: newStudio.gradientAngle,
       });
 
+      if (settingsError) {
+        console.error('Settings insert error:', settingsError);
+        throw new Error(`Failed to create settings: ${settingsError.message}`);
+      }
+      console.log('✅ Settings created');
+
       toast({ title: 'Studio Created!', description: `${newStudio.name} is now active.` });
       setCreateOpen(false);
       setNewStudio({
@@ -110,7 +148,8 @@ const StudiosManager: React.FC = () => {
       });
       fetchStudios();
     } catch (err: any) {
-      toast({ title: 'Error', description: err.message, variant: 'destructive' });
+      console.error('❌ Studio creation failed:', err);
+      toast({ title: 'Error', description: err.message || 'Failed to create studio', variant: 'destructive' });
     } finally {
       setCreating(false);
     }
